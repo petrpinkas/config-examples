@@ -37,8 +37,14 @@ var _ = Describe("Basic Scenario", Ordered, func() {
 
 	BeforeAll(func() {
 		scenarioName = "basic"
-		// Path to the basic scenario config file
-		configPath = filepath.Join("..", "..", "scenarios", scenarioName, "rhtas-basic.yaml")
+		scenarioDir := filepath.Join("..", "..", "scenarios", scenarioName)
+		baseName := "rhtas-basic"
+		variantName := "default"
+
+		// Process template with conf file to generate the final YAML
+		var err error
+		configPath, err = config.ProcessTemplateFromPaths(scenarioDir, baseName, variantName)
+		Expect(err).NotTo(HaveOccurred(), "Failed to process template")
 		fmt.Printf("Processing scenario: %s (%s) in namespace: %s\n", scenarioName, configPath, namespace.Name)
 	})
 

@@ -141,3 +141,122 @@ func FindConfigFiles(dir string) ([]string, error) {
 
 	return files, err
 }
+
+// LoadConfFile loads a .conf file with key=value pairs
+// Returns a map of key to value
+func LoadConfFile(filePath string) (map[string]string, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read conf file: %w", err)
+	}
+
+	config := make(map[string]string)
+	lines := strings.Split(string(data), "\n")
+
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid format in conf file at line %d: %s (expected key=value)", i+1, line)
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		if key == "" {
+			return nil, fmt.Errorf("empty key in conf file at line %d", i+1)
+		}
+
+		config[key] = value
+	}
+
+	return config, nil
+}
+
+// ProcessTemplate processes a template YAML file with values from a conf file
+// templatePath: path to the template YAML file (e.g., "rhtas-basic-template.yaml")
+// confPath: path to the conf file (e.g., "rhtas-basic-default.conf")
+// outputPath: path where the processed YAML will be written (e.g., "rhtas-basic-default.yaml")
+func ProcessTemplate(templatePath, confPath, outputPath string) error {
+	// Load conf file
+	confValues, err := LoadConfFile(confPath)
+	if err != nil {
+		return fmt.Errorf("failed to load conf file: %w", err)
+	}
+
+	// Load template YAML
+	templateData, err := os.ReadFile(templatePath)
+	if err != nil {
+		return fmt.Errorf("failed to read template file: %w", err)
+	}
+
+	// Parse template as YAML to work with structured data
+	var templateConfig map[string]interface{}
+	if err := yaml.Unmarshal(templateData, &templateConfig); err != nil {
+		return fmt.Errorf("failed to parse template YAML: %w", err)
+	}
+
+	// Replace placeholder values in the config structure
+	// The placeholder in YAML is 'https://your-oidc-issuer-url' but after unmarshaling it becomes https://your-oidc-issuer-url
+	placeholder := "https://your-oidc-issuer-url"
+	replacePlaceholders(templateConfig, placeholder, confValues)
+
+	// Convert back to YAML
+	outputData, err := yaml.Marshal(templateConfig)
+	if err != nil {
+		return fmt.Errorf("failed to marshal processed YAML: %w", err)
+	}
+
+	// Write output file
+	if err := os.WriteFile(outputPath, outputData, 0644); err != nil {
+		return fmt.Errorf("failed to write output file: %w", err)
+	}
+
+	return nil
+}
+
+// replacePlaceholders recursively replaces placeholder values in the config structure
+// It looks for the placeholder string and replaces it with values from confValues
+// based on the field name (key in confValues)
+func replacePlaceholders(data interface{}, placeholder string, confValues map[string]string) {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key, val := range v {
+			// Check if this is a string value that matches the placeholder
+			if strVal, ok := val.(string); ok && strVal == placeholder {
+				// Try to find replacement value by key name
+				if replacement, exists := confValues[key]; exists {
+					v[key] = replacement
+				}
+			} else {
+				// Recursively process nested structures
+				replacePlaceholders(val, placeholder, confValues)
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			replacePlaceholders(item, placeholder, confValues)
+		}
+	}
+}
+
+// ProcessTemplateFromPaths processes a template using scenario name and variant name
+// scenarioDir: directory containing the template and conf files (e.g., "scenarios/basic")
+// scenarioName: base name of the scenario (e.g., "rhtas-basic")
+// variantName: variant name (e.g., "default")
+// Returns the path to the generated YAML file
+func ProcessTemplateFromPaths(scenarioDir, scenarioName, variantName string) (string, error) {
+	templatePath := filepath.Join(scenarioDir, scenarioName+"-template.yaml")
+	confPath := filepath.Join(scenarioDir, scenarioName+"-"+variantName+".conf")
+	outputPath := filepath.Join(scenarioDir, scenarioName+"-"+variantName+".yaml")
+
+	if err := ProcessTemplate(templatePath, confPath, outputPath); err != nil {
+		return "", err
+	}
+
+	return outputPath, nil
+}
