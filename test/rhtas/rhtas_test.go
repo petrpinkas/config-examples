@@ -5,7 +5,9 @@ import (
 	"path/filepath"
 
 	"github.com/petrpinkas/config-examples/pkg/config"
+	"github.com/petrpinkas/config-examples/pkg/installer"
 	"github.com/petrpinkas/config-examples/pkg/kubernetes"
+	"github.com/petrpinkas/config-examples/pkg/verifier"
 	"github.com/petrpinkas/config-examples/test/support"
 	v1 "k8s.io/api/core/v1"
 
@@ -19,6 +21,8 @@ var _ = Describe("Basic Scenario", Ordered, func() {
 	var scenarioName string
 	var k8sClient client.Client
 	var namespace *v1.Namespace
+	var securesignConfig *config.Config
+	var securesignName string
 
 	BeforeAll(func(ctx SpecContext) {
 		var err error
@@ -29,10 +33,7 @@ var _ = Describe("Basic Scenario", Ordered, func() {
 
 	BeforeAll(func(ctx SpecContext) {
 		namespace = support.CreateTestNamespace(ctx, k8sClient)
-		DeferCleanup(func(ctx SpecContext) {
-			GinkgoWriter.Printf("Deleting test namespace: %s\n", namespace.Name)
-			Expect(k8sClient.Delete(ctx, namespace)).To(Succeed())
-		})
+		// Note: We keep the namespace after tests (no cleanup)
 	})
 
 	BeforeAll(func() {
@@ -42,49 +43,70 @@ var _ = Describe("Basic Scenario", Ordered, func() {
 		fmt.Printf("Processing scenario: %s (%s) in namespace: %s\n", scenarioName, configPath, namespace.Name)
 	})
 
+	BeforeAll(func(ctx SpecContext) {
+		var err error
+		securesignConfig, err = config.LoadConfig(configPath)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Update namespace to use the created test namespace
+		err = config.UpdateConfig(securesignConfig, fmt.Sprintf("metadata.namespace=%s", namespace.Name))
+		Expect(err).NotTo(HaveOccurred())
+
+		securesignName = securesignConfig.GetName()
+		fmt.Printf("Installing Securesign: %s in namespace: %s\n", securesignName, namespace.Name)
+	})
+
+	BeforeAll(func(ctx SpecContext) {
+		// Install the Securesign configuration
+		err := installer.InstallConfig(ctx, k8sClient, securesignConfig)
+		Expect(err).NotTo(HaveOccurred())
+		fmt.Printf("Securesign CR created, waiting for installation...\n")
+	})
+
 	Describe("Config Loading", func() {
 		It("should load the basic configuration file", func() {
-			cfg, err := config.LoadConfig(configPath)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cfg).NotTo(BeNil())
-			Expect(cfg.Data).NotTo(BeNil())
+			Expect(securesignConfig).NotTo(BeNil())
+			Expect(securesignConfig.Data).NotTo(BeNil())
 		})
 
 		It("should have correct resource type", func() {
-			cfg, err := config.LoadConfig(configPath)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(cfg.GetKind()).To(Equal("Securesign"))
-			Expect(cfg.GetAPIVersion()).To(Equal("rhtas.redhat.com/v1alpha1"))
+			Expect(securesignConfig.GetKind()).To(Equal("Securesign"))
+			Expect(securesignConfig.GetAPIVersion()).To(Equal("rhtas.redhat.com/v1alpha1"))
 		})
 
 		It("should have metadata", func() {
-			cfg, err := config.LoadConfig(configPath)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(cfg.GetName()).To(Equal("securesign-sample"))
-			Expect(cfg.GetNamespace()).To(Equal("openshift-operators"))
+			Expect(securesignConfig.GetName()).To(Equal("securesign-sample"))
+			Expect(securesignConfig.GetNamespace()).To(Equal(namespace.Name))
 		})
 
 		It("should have spec section", func() {
-			cfg, err := config.LoadConfig(configPath)
-			Expect(err).NotTo(HaveOccurred())
-
-			spec, ok := cfg.Data["spec"].(map[string]interface{})
+			spec, ok := securesignConfig.Data["spec"].(map[string]interface{})
 			Expect(ok).To(BeTrue())
 			Expect(spec).NotTo(BeNil())
 		})
 
 		It("should have fulcio configuration in spec", func() {
-			cfg, err := config.LoadConfig(configPath)
-			Expect(err).NotTo(HaveOccurred())
-
-			spec, ok := cfg.Data["spec"].(map[string]interface{})
+			spec, ok := securesignConfig.Data["spec"].(map[string]interface{})
 			Expect(ok).To(BeTrue())
 
 			fulcio, ok := spec["fulcio"].(map[string]interface{})
 			Expect(ok).To(BeTrue())
 			Expect(fulcio).NotTo(BeNil())
+		})
+	})
+
+	Describe("Securesign Installation", func() {
+		It("should install Securesign CR successfully", func(ctx SpecContext) {
+			// Verify the CR exists
+			obj := verifier.Get(ctx, k8sClient, namespace.Name, securesignName)
+			Expect(obj).NotTo(BeNil())
+			fmt.Printf("Securesign CR found: %s/%s\n", namespace.Name, securesignName)
+		})
+
+		It("should wait for Securesign to be ready", func(ctx SpecContext) {
+			fmt.Printf("Waiting for Securesign %s/%s to be ready...\n", namespace.Name, securesignName)
+			verifier.Verify(ctx, k8sClient, namespace.Name, securesignName)
+			fmt.Printf("Securesign %s/%s is ready!\n", namespace.Name, securesignName)
 		})
 	})
 })
