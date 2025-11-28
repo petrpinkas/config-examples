@@ -38,10 +38,17 @@ var _ = Describe("Config Loading", func() {
 		config, err := LoadConfig(configPath)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config).NotTo(BeNil())
-		Expect(config.Kind).To(Equal("Securesign"))
-		Expect(config.APIVersion).To(Equal("rhtas.redhat.com/v1alpha1"))
-		Expect(config.Metadata.Name).NotTo(BeEmpty())
-		Expect(config.Spec).NotTo(BeNil())
+		Expect(config.Data).NotTo(BeNil())
+		Expect(config.GetKind()).To(Equal("Securesign"))
+		Expect(config.GetAPIVersion()).To(Equal("rhtas.redhat.com/v1alpha1"))
+		Expect(config.GetName()).NotTo(BeEmpty())
+		Expect(config.GetNamespace()).NotTo(BeEmpty())
+		// Verify spec exists
+		if spec, ok := config.Data["spec"].(map[string]interface{}); ok {
+			Expect(spec).NotTo(BeNil())
+		} else {
+			Fail("spec should be a map")
+		}
 	})
 
 	It("should return error for non-existent file", func() {
@@ -67,7 +74,7 @@ var _ = Describe("Config Loading", func() {
 })
 
 var _ = Describe("Config Updates", func() {
-	var config *SecuresignConfig
+	var config *Config
 
 	BeforeEach(func() {
 		projectRoot := getProjectRoot()
@@ -80,26 +87,33 @@ var _ = Describe("Config Updates", func() {
 	It("should update metadata.name", func() {
 		err := UpdateConfig(config, "metadata.name=my-securesign")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(config.Metadata.Name).To(Equal("my-securesign"))
+		Expect(config.GetName()).To(Equal("my-securesign"))
 	})
 
 	It("should update metadata.namespace", func() {
 		err := UpdateConfig(config, "metadata.namespace=my-namespace")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(config.Metadata.Namespace).To(Equal("my-namespace"))
+		Expect(config.GetNamespace()).To(Equal("my-namespace"))
 	})
 
 	It("should update metadata.labels", func() {
 		err := UpdateConfig(config, "metadata.labels.test=value")
 		Expect(err).NotTo(HaveOccurred())
-		Expect(config.Metadata.Labels["test"]).To(Equal("value"))
+		
+		metadata, ok := config.Data["metadata"].(map[string]interface{})
+		Expect(ok).To(BeTrue())
+		labels, ok := metadata["labels"].(map[string]interface{})
+		Expect(ok).To(BeTrue())
+		Expect(labels["test"]).To(Equal("value"))
 	})
 
 	It("should update nested spec values", func() {
 		err := UpdateConfig(config, "spec.fulcio.certificate.commonName=fulcio.example.com")
 		Expect(err).NotTo(HaveOccurred())
 
-		fulcio, ok := config.Spec["fulcio"].(map[string]interface{})
+		spec, ok := config.Data["spec"].(map[string]interface{})
+		Expect(ok).To(BeTrue())
+		fulcio, ok := spec["fulcio"].(map[string]interface{})
 		Expect(ok).To(BeTrue())
 		certificate, ok := fulcio["certificate"].(map[string]interface{})
 		Expect(ok).To(BeTrue())
@@ -110,7 +124,9 @@ var _ = Describe("Config Updates", func() {
 		err := UpdateConfig(config, "spec.newcomponent.setting=value")
 		Expect(err).NotTo(HaveOccurred())
 
-		newComponent, ok := config.Spec["newcomponent"].(map[string]interface{})
+		spec, ok := config.Data["spec"].(map[string]interface{})
+		Expect(ok).To(BeTrue())
+		newComponent, ok := spec["newcomponent"].(map[string]interface{})
 		Expect(ok).To(BeTrue())
 		Expect(newComponent["setting"]).To(Equal("value"))
 	})
@@ -121,10 +137,10 @@ var _ = Describe("Config Updates", func() {
 		Expect(err.Error()).To(ContainSubstring("invalid path=value format"))
 	})
 
-	It("should return error for unsupported top-level path", func() {
-		err := UpdateConfig(config, "unsupported.field=value")
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("unsupported top-level path"))
+	It("should update any top-level field", func() {
+		err := UpdateConfig(config, "kind=MyCustomKind")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.GetKind()).To(Equal("MyCustomKind"))
 	})
 })
 
@@ -140,6 +156,29 @@ var _ = Describe("Config to YAML", func() {
 		Expect(yamlData).NotTo(BeEmpty())
 		Expect(string(yamlData)).To(ContainSubstring("apiVersion"))
 		Expect(string(yamlData)).To(ContainSubstring("kind: Securesign"))
+	})
+
+	It("should handle generic Kubernetes resources", func() {
+		// Create a minimal generic config
+		config := &Config{
+			Data: map[string]interface{}{
+				"apiVersion": "v1",
+				"kind":       "ConfigMap",
+				"metadata": map[string]interface{}{
+					"name":      "test-config",
+					"namespace": "default",
+				},
+				"data": map[string]interface{}{
+					"key": "value",
+				},
+			},
+		}
+
+		yamlData, err := config.ToYAML()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(yamlData).NotTo(BeEmpty())
+		Expect(string(yamlData)).To(ContainSubstring("kind: ConfigMap"))
+		Expect(string(yamlData)).To(ContainSubstring("name: test-config"))
 	})
 })
 

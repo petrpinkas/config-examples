@@ -9,40 +9,33 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// SecuresignConfig represents the Securesign custom resource configuration
-type SecuresignConfig struct {
-	APIVersion string                 `yaml:"apiVersion"`
-	Kind       string                 `yaml:"kind"`
-	Metadata   Metadata               `yaml:"metadata"`
-	Spec       map[string]interface{} `yaml:"spec"`
-}
-
-// Metadata represents the metadata section of the config
-type Metadata struct {
-	Name        string            `yaml:"name"`
-	Namespace   string            `yaml:"namespace"`
-	Labels      map[string]string `yaml:"labels,omitempty"`
-	Annotations map[string]string `yaml:"annotations,omitempty"`
+// Config represents a generic Kubernetes resource configuration
+// It uses map[string]interface{} to be flexible with different resource structures
+type Config struct {
+	Data map[string]interface{}
 }
 
 // LoadConfig loads a YAML configuration file
-func LoadConfig(filePath string) (*SecuresignConfig, error) {
+// It returns a generic Config that can handle any Kubernetes resource structure
+func LoadConfig(filePath string) (*Config, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	var config SecuresignConfig
-	if err := yaml.Unmarshal(data, &config); err != nil {
+	var configData map[string]interface{}
+	if err := yaml.Unmarshal(data, &configData); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
-	return &config, nil
+	return &Config{Data: configData}, nil
 }
 
 // UpdateConfig updates a configuration value using dot-notation path
 // Example: spec.fulcio.config.OIDCIssuers.Issuer=value
-func UpdateConfig(config *SecuresignConfig, pathValue string) error {
+// Example: metadata.name=my-resource
+// Example: metadata.labels.app=myapp
+func UpdateConfig(config *Config, pathValue string) error {
 	parts := strings.SplitN(pathValue, "=", 2)
 	if len(parts) != 2 {
 		return fmt.Errorf("invalid path=value format: %s", pathValue)
@@ -52,62 +45,12 @@ func UpdateConfig(config *SecuresignConfig, pathValue string) error {
 	value := strings.TrimSpace(parts[1])
 
 	pathParts := strings.Split(path, ".")
-	if len(pathParts) < 2 {
-		return fmt.Errorf("path must have at least 2 parts (e.g., spec.fulcio.config): %s", path)
+	if len(pathParts) == 0 {
+		return fmt.Errorf("path cannot be empty")
 	}
 
-	// Handle metadata updates
-	if pathParts[0] == "metadata" {
-		return updateMetadata(&config.Metadata, pathParts[1:], value)
-	}
-
-	// Handle spec updates
-	if pathParts[0] == "spec" {
-		return updateNestedMap(config.Spec, pathParts[1:], value)
-	}
-
-	return fmt.Errorf("unsupported top-level path: %s (only 'metadata' and 'spec' are supported)", pathParts[0])
-}
-
-func updateMetadata(metadata *Metadata, path []string, value string) error {
-	if len(path) == 0 {
-		return fmt.Errorf("metadata path cannot be empty")
-	}
-
-	switch path[0] {
-	case "name":
-		if len(path) > 1 {
-			return fmt.Errorf("metadata.name does not support nested paths")
-		}
-		metadata.Name = value
-	case "namespace":
-		if len(path) > 1 {
-			return fmt.Errorf("metadata.namespace does not support nested paths")
-		}
-		metadata.Namespace = value
-	case "labels":
-		if metadata.Labels == nil {
-			metadata.Labels = make(map[string]string)
-		}
-		if len(path) == 2 {
-			metadata.Labels[path[1]] = value
-		} else {
-			return fmt.Errorf("metadata.labels requires key: metadata.labels.key=value")
-		}
-	case "annotations":
-		if metadata.Annotations == nil {
-			metadata.Annotations = make(map[string]string)
-		}
-		if len(path) == 2 {
-			metadata.Annotations[path[1]] = value
-		} else {
-			return fmt.Errorf("metadata.annotations requires key: metadata.annotations.key=value")
-		}
-	default:
-		return fmt.Errorf("unsupported metadata field: %s", path[0])
-	}
-
-	return nil
+	// Navigate through the config map using the path
+	return updateNestedMap(config.Data, pathParts, value)
 }
 
 func updateNestedMap(m map[string]interface{}, path []string, value string) error {
@@ -133,6 +76,7 @@ func updateNestedMap(m map[string]interface{}, path []string, value string) erro
 	nextMap, ok := current.(map[string]interface{})
 	if !ok {
 		// If it's not a map, replace with a new map
+		// This allows overwriting non-map values with nested structures
 		m[key] = make(map[string]interface{})
 		nextMap = m[key].(map[string]interface{})
 	}
@@ -141,8 +85,44 @@ func updateNestedMap(m map[string]interface{}, path []string, value string) erro
 }
 
 // ToYAML converts the config back to YAML
-func (c *SecuresignConfig) ToYAML() ([]byte, error) {
-	return yaml.Marshal(c)
+func (c *Config) ToYAML() ([]byte, error) {
+	return yaml.Marshal(c.Data)
+}
+
+// GetKind returns the kind of the Kubernetes resource
+func (c *Config) GetKind() string {
+	if kind, ok := c.Data["kind"].(string); ok {
+		return kind
+	}
+	return ""
+}
+
+// GetAPIVersion returns the apiVersion of the Kubernetes resource
+func (c *Config) GetAPIVersion() string {
+	if apiVersion, ok := c.Data["apiVersion"].(string); ok {
+		return apiVersion
+	}
+	return ""
+}
+
+// GetName returns the name from metadata
+func (c *Config) GetName() string {
+	if metadata, ok := c.Data["metadata"].(map[string]interface{}); ok {
+		if name, ok := metadata["name"].(string); ok {
+			return name
+		}
+	}
+	return ""
+}
+
+// GetNamespace returns the namespace from metadata
+func (c *Config) GetNamespace() string {
+	if metadata, ok := c.Data["metadata"].(map[string]interface{}); ok {
+		if namespace, ok := metadata["namespace"].(string); ok {
+			return namespace
+		}
+	}
+	return ""
 }
 
 // FindConfigFiles finds all YAML config files in a directory
@@ -161,4 +141,3 @@ func FindConfigFiles(dir string) ([]string, error) {
 
 	return files, err
 }
-
