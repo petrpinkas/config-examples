@@ -5,6 +5,7 @@ go 1.24.6
 require (
 	github.com/onsi/ginkgo/v2 v2.25.1
 	github.com/onsi/gomega v1.38.2
+	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/viper v1.18.2
 	gopkg.in/yaml.v3 v3.0.1
 )
