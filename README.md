@@ -4,6 +4,28 @@ A Ginkgo-based test suite for installing, verifying, and testing Red Hat Trusted
 
 ## Running Tests
 
+### Using Go Test (Recommended)
+
+Run all tests:
+```bash
+go test -v ./test/... --ginkgo.v
+```
+
+Run specific scenario (using focus):
+```bash
+go test -v ./test/... --ginkgo.v --ginkgo.focus "Basic Scenario"
+```
+
+Run specific test group:
+```bash
+go test -v ./test/... --ginkgo.v --ginkgo.focus "Config Loading"
+```
+
+Run with labels (if you add labels to tests):
+```bash
+go test -v ./test/... --ginkgo.v --ginkgo.label-filter "scenario=basic"
+```
+
 ### Using Ginkgo CLI
 
 Run all tests:
@@ -16,11 +38,6 @@ Run specific scenario (using focus):
 go run github.com/onsi/ginkgo/v2/ginkgo --focus "Basic Scenario" -v test/...
 ```
 
-Run specific test group:
-```bash
-go run github.com/onsi/ginkgo/v2/ginkgo --focus "Config Loading" -v test/...
-```
-
 Run from a specific test directory:
 ```bash
 cd test/rhtas
@@ -30,23 +47,6 @@ go run github.com/onsi/ginkgo/v2/ginkgo -v
 **Note**: If you have `ginkgo` installed in your PATH, you can use it directly:
 ```bash
 ginkgo -v test/...
-```
-
-### Using Go Test
-
-Run all tests:
-```bash
-go test ./test/rhtas/... -v
-```
-
-Run specific test:
-```bash
-go test ./test/rhtas/... -v -ginkgo.focus "Basic Scenario"
-```
-
-Run with labels (if you add labels to tests):
-```bash
-go test ./test/rhtas/... -v -ginkgo.label-filter "scenario=basic"
 ```
 
 ### Common Ginkgo Flags
