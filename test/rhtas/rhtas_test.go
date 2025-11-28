@@ -33,7 +33,6 @@ var _ = Describe("Basic Scenario", Ordered, func() {
 
 	BeforeAll(func(ctx SpecContext) {
 		namespace = support.CreateTestNamespace(ctx, k8sClient)
-		// Note: We keep the namespace after tests (no cleanup)
 	})
 
 	BeforeAll(func() {
@@ -61,6 +60,20 @@ var _ = Describe("Basic Scenario", Ordered, func() {
 		err := installer.InstallConfig(ctx, k8sClient, securesignConfig)
 		Expect(err).NotTo(HaveOccurred())
 		fmt.Printf("Securesign CR created, waiting for installation...\n")
+
+		// Register cleanup: Delete Securesign CR first, then namespace
+		DeferCleanup(func(ctx SpecContext) {
+			// Delete Securesign CR
+			obj := verifier.Get(ctx, k8sClient, namespace.Name, securesignName)
+			if obj != nil {
+				fmt.Printf("Deleting Securesign CR: %s/%s\n", namespace.Name, securesignName)
+				Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
+			}
+
+			// Delete namespace
+			fmt.Printf("Deleting test namespace: %s\n", namespace.Name)
+			Expect(k8sClient.Delete(ctx, namespace)).To(Succeed())
+		})
 	})
 
 	Describe("Config Loading", func() {
