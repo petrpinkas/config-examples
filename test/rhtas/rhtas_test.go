@@ -5,20 +5,41 @@ import (
 	"path/filepath"
 
 	"github.com/petrpinkas/config-examples/pkg/config"
+	"github.com/petrpinkas/config-examples/pkg/kubernetes"
+	"github.com/petrpinkas/config-examples/test/support"
+	v1 "k8s.io/api/core/v1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("Basic Scenario", Ordered, func() {
 	var configPath string
 	var scenarioName string
+	var k8sClient client.Client
+	var namespace *v1.Namespace
+
+	BeforeAll(func(ctx SpecContext) {
+		var err error
+		k8sClient, err = kubernetes.GetClient()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(k8sClient).NotTo(BeNil())
+	})
+
+	BeforeAll(func(ctx SpecContext) {
+		namespace = support.CreateTestNamespace(ctx, k8sClient)
+		DeferCleanup(func(ctx SpecContext) {
+			GinkgoWriter.Printf("Deleting test namespace: %s\n", namespace.Name)
+			Expect(k8sClient.Delete(ctx, namespace)).To(Succeed())
+		})
+	})
 
 	BeforeAll(func() {
 		scenarioName = "basic"
 		// Path to the basic scenario config file
 		configPath = filepath.Join("..", "..", "scenarios", scenarioName, "rhtas-basic.yaml")
-		fmt.Printf("Processing scenario: %s (%s)\n", scenarioName, configPath)
+		fmt.Printf("Processing scenario: %s (%s) in namespace: %s\n", scenarioName, configPath, namespace.Name)
 	})
 
 	Describe("Config Loading", func() {
