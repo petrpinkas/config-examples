@@ -1,0 +1,301 @@
+# RHTAS Configuration Test Suite - Cursor Rules
+
+## Project Overview
+This is a Ginkgo-based test suite for installing, verifying, and testing Red Hat Trusted Artifact Signer (RHTAS) configurations on OpenShift clusters. The project follows patterns from `sigstore-e2e` and `secure-sign-operator` projects.
+
+## Project Structure
+
+### Directory Layout
+- `pkg/` - Reusable packages (api, config, clients, kubernetes, installer, verifier)
+- `test/` - Test suites (not `tests/`)
+  - `test/rhtas/` - Main RHTAS test suite
+  - `test/support/` - Shared test utilities
+- `scenarios/` - Test scenarios organized by subfolder (e.g., `scenarios/basic/`)
+
+### File Naming
+- Test files: `*_test.go` (e.g., `rhtas_test.go`)
+- Suite files: `*_suite_test.go` (e.g., `rhtas_suite_test.go`)
+- Package files: lowercase, descriptive (e.g., `config.go`, `client.go`)
+
+## Code Patterns
+
+### Package Organization
+- `pkg/api/` - Configuration constants and environment variables (Viper)
+- `pkg/config/` - YAML configuration loading and manipulation
+- `pkg/clients/` - CLI tool wrappers (cosign, etc.)
+- `pkg/kubernetes/` - Kubernetes client and helpers
+- `pkg/installer/` - RHTAS installation logic
+- `pkg/verifier/` - Component verification logic (one file per component)
+
+### Imports Order
+1. Standard library
+2. Third-party (non-Kubernetes)
+3. Kubernetes/OpenShift
+4. Project packages
+
+Example:
+```go
+import (
+    "context"
+    "fmt"
+    
+    "github.com/onsi/ginkgo/v2"
+    "github.com/onsi/gomega"
+    "github.com/sirupsen/logrus"
+    
+    "k8s.io/apimachinery/pkg/api/errors"
+    "sigs.k8s.io/controller-runtime/pkg/client"
+    
+    "github.com/petrpinkas/config-examples/pkg/api"
+    "github.com/petrpinkas/config-examples/pkg/config"
+)
+```
+
+### Ginkgo Test Structure
+- Use `Ordered` for sequential test execution
+- Use `SpecContext` for context handling in tests
+- Use `BeforeAll()` for one-time setup (multiple blocks supported)
+- Use `DeferCleanup()` for cleanup registration (minimal for our project - we keep installations)
+- Use `AfterSuite()` for final cleanup only
+
+Example:
+```go
+var _ = Describe("Feature Name", Ordered, func() {
+    var (
+        k8sClient kubernetes.Client
+        cosign    *clients.Cosign
+    )
+    
+    BeforeAll(func() {
+        // Setup
+    })
+    
+    Describe("Sub-feature", func() {
+        It("should do something", func(ctx SpecContext) {
+            // Test implementation
+        })
+    })
+})
+```
+
+### Error Handling
+- Use Gomega matchers: `Expect().To(Succeed())`, `Expect().NotTo(HaveOccurred())`
+- Use `Eventually()` with `WithContext(ctx)` for async operations
+- Return errors from functions, use matchers in tests
+- Use `context.Context` as first parameter in functions
+
+### Logging
+- Use `logrus` for structured logging
+- Log at appropriate levels: Info, Warn, Error
+- Use structured fields: `logrus.WithField("key", value)`
+- Log commands: `logrus.WithField("app", "cosign")`
+
+### Kubernetes Client Pattern
+- Singleton pattern with `sync.Once`
+- Combine `controller-runtime` client with `kubernetes.Interface`
+- Register all required schemes (core K8s, Securesign CRD, OpenShift Route)
+- Use `config.GetConfig()` for automatic kubeconfig detection
+
+Example:
+```go
+var k8sClient Client
+var once sync.Once
+
+func GetClient() Client {
+    once.Do(func() {
+        // Initialize client
+        // Register schemes
+    })
+    return k8sClient
+}
+```
+
+### Component Verification Pattern
+Each component should have:
+- `Get(ctx, cli, namespace, name)` - Retrieve CR instance, returns `nil` if not found
+- `Verify(ctx, cli, namespace, name)` - Uses `Eventually()` to wait for readiness
+
+Pattern:
+```go
+func Verify(ctx context.Context, cli client.Client, namespace, name string) {
+    Eventually(Get).WithContext(ctx).
+        WithArguments(cli, namespace, name).
+        Should(And(
+            Not(BeNil()),
+            WithTransform(condition.IsReady, BeTrue()),
+        ))
+    Eventually(condition.DeploymentIsRunning).WithContext(ctx).
+        WithArguments(cli, namespace, componentName).
+        Should(BeTrue())
+}
+```
+
+### Configuration Management
+- Use Viper for environment variables
+- Define constants for all config keys in `pkg/api/values.go`
+- Set defaults in `init()` function
+- Provide `GetValueFor(key)` helper function
+- Validate mandatory config values in `BeforeAll()`
+
+Example:
+```go
+const (
+    FulcioURL = "SIGSTORE_FULCIO_URL"
+    RekorURL  = "SIGSTORE_REKOR_URL"
+)
+
+var Values *viper.Viper
+
+func init() {
+    Values = viper.New()
+    Values.SetDefault(OidcUser, "jdoe")
+    Values.AutomaticEnv()
+}
+
+func GetValueFor(key string) string {
+    return Values.GetString(key)
+}
+```
+
+### CLI Tool Abstraction
+- Base `cli` struct with setup strategy
+- Simple wrapper pattern (no complex abstractions)
+- Commands use environment variables when possible
+- Logging integration with logrus
+
+Example:
+```go
+type Cosign struct {
+    *cli
+}
+
+func NewCosign() *Cosign {
+    return &Cosign{
+        &cli{
+            Name:           "cosign",
+            setupStrategy:  PreferredSetupStrategy(),
+            versionCommand: "version",
+        }}
+}
+```
+
+### Cosign Integration
+- Use environment variables for URLs (COSIGN_FULCIO_URL, COSIGN_REKOR_URL, etc.)
+- Minimal flags in commands (cosign reads from env vars)
+- Simple sign: `cosign sign -y --identity-token=<token> <image>`
+- Simple verify: `cosign verify --certificate-identity-regexp <pattern> --certificate-oidc-issuer-regexp <pattern> <image>`
+
+### YAML Configuration
+- Load configs from filesystem using `pkg/config`
+- Support dot-notation path updates: `spec.fulcio.config.OIDCIssuers.Issuer=value`
+- Convert back to YAML for applying to cluster
+
+## Testing Patterns
+
+### Test Suite Setup
+```go
+func TestRhtasTest(t *testing.T) {
+    RegisterFailHandler(Fail)
+    log.SetLogger(GinkgoLogr)  // If using controller-runtime logging
+    SetDefaultEventuallyTimeout(3 * time.Minute)
+    EnforceDefaultTimeoutsWhenUsingContexts()
+    RunSpecs(t, "RHTAS Configuration Tests")
+    format.MaxLength = 0  // Print full stack on failure
+}
+```
+
+### Test Flow
+1. Check mandatory config values
+2. Initialize clients (K8s, cosign)
+3. Load YAML configuration
+4. Apply placeholder updates (if any)
+5. Install Securesign CR
+6. Verify all components are ready
+7. Perform sign/verify operations
+8. Keep installations (no cleanup)
+
+### Component Verification Order
+Verify components in dependency order:
+1. Trillian (database)
+2. Fulcio
+3. TSA
+4. Rekor (depends on Trillian)
+5. CTlog
+6. TUF
+7. Securesign (parent CR)
+
+### Using Eventually()
+- Always use `WithContext(ctx)` for proper context handling
+- Set appropriate timeouts
+- Use `Should()` with appropriate matchers
+- Use `WithTransform()` for condition checking
+
+Example:
+```go
+Eventually(func(g Gomega) *v1.Secret {
+    // Get resource
+    return secret
+}).WithContext(ctx).Should(Not(BeNil()))
+```
+
+## Naming Conventions
+
+### Functions
+- Public functions: PascalCase (e.g., `GetClient()`, `LoadConfig()`)
+- Private functions: camelCase (e.g., `updateNestedMap()`)
+- Test functions: Descriptive names (e.g., `It("should verify components are ready")`)
+
+### Variables
+- Use descriptive names
+- Test variables: `targetImageName`, `oidcToken`, `k8sClient`
+- Context variables: `ctx` (not `context`)
+
+### Constants
+- Uppercase with underscores (e.g., `FulcioURL`, `OidcIssuerURL`)
+- Match environment variable names
+
+### Packages
+- Lowercase, single word when possible
+- Descriptive: `verifier`, `installer`, `clients`
+
+## Documentation
+
+### Comments
+- Package comments: Describe package purpose
+- Public functions: Describe what they do, parameters, return values
+- Complex logic: Explain why, not what
+
+### README
+- Keep README.md updated with usage examples
+- Document environment variables
+- Include examples of running tests
+
+## Key Principles
+
+1. **Keep It Simple**: Prefer simple, straightforward code over complex abstractions
+2. **Use Environment Variables**: Cosign and other tools should use env vars when possible
+3. **Follow Existing Patterns**: Match patterns from `sigstore-e2e` and `secure-sign-operator`
+4. **Keep Installations**: Tests keep installations after completion (no cleanup)
+5. **Context First**: Always pass `context.Context` as first parameter
+6. **Error Handling**: Return errors from functions, use matchers in tests
+7. **Logging**: Use structured logging with appropriate levels
+8. **Test Organization**: Use `Ordered` tests, multiple `BeforeAll` blocks, `SpecContext`
+
+## Common Patterns to Avoid
+
+- Don't create complex abstractions for simple CLI tools
+- Don't cleanup installations (keep them for debugging)
+- Don't use `context.Background()` in tests - use `SpecContext`
+- Don't forget to register schemes when creating K8s client
+- Don't hardcode URLs - use environment variables or CR status
+- Don't skip error handling - always check and handle errors appropriately
+
+## References
+
+- Design Document: `docs/DESIGN.md`
+- Analysis Documents: `docs/ANALYSIS.md`, `docs/OPERATOR_TEST_ANALYSIS.md`, `docs/E2E_TEST_ANALYSIS.md`
+- Similar Projects:
+  - `sigstore-e2e`: E2E test patterns
+  - `secure-sign-operator`: Operator test patterns
+  - `quickstarts`: Configuration examples
+
