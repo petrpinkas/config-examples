@@ -1,0 +1,36 @@
+version: "2"
+run:
+  allow-parallel-runners: true
+linters:
+  default: none
+  enable:
+    - copyloopvar
+    - errcheck
+    - ginkgolinter
+    - goconst
+    - gocyclo
+    - govet
+    - ineffassign
+    - misspell
+    - nakedret
+    - prealloc
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+  settings:
+    staticcheck:
+      dot-import-whitelist:
+        - github.com/onsi/gomega
+        - github.com/onsi/ginkgo/v2
+  exclusions:
+    paths:
+      - bin$
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  exclusions:
+    paths:
+      - bin$
+

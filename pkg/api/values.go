@@ -12,16 +12,16 @@ const (
 	TsaURL        = "TSA_URL" // Optional, for TSA tests
 
 	// OIDC Authentication
-	OidcToken      = "OIDC_TOKEN"        // Optional, retrieved if not set
-	OidcUser       = "OIDC_USER"         // Default: "jdoe"
-	OidcPassword   = "OIDC_PASSWORD"     // Default: "secure"
-	OidcUserDomain = "OIDC_USER_DOMAIN"  // Default: "redhat.com"
-	OidcRealm      = "KEYCLOAK_REALM"     // Default: "trusted-artifact-signer"
-	OidcClientID   = "OIDC_CLIENT_ID"    // Default: "trusted-artifact-signer"
+	OidcToken      = "OIDC_TOKEN"       // Optional, retrieved if not set
+	OidcUser       = "OIDC_USER"        // Default: "jdoe"
+	OidcPassword   = "OIDC_PASSWORD"    // Default: "secure"
+	OidcUserDomain = "OIDC_USER_DOMAIN" // Default: "redhat.com"
+	OidcRealm      = "KEYCLOAK_REALM"   // Default: "trusted-artifact-signer"
+	OidcClientID   = "OIDC_CLIENT_ID"   // Default: "trusted-artifact-signer"
 
 	// Image Setup
 	ManualImageSetup = "MANUAL_IMAGE_SETUP" // Default: "false"
-	TargetImageName  = "TARGET_IMAGE_NAME"   // Required if ManualImageSetup=true
+	TargetImageName  = "TARGET_IMAGE_NAME"  // Required if ManualImageSetup=true
 )
 
 // Values holds the Viper instance for configuration management
@@ -46,4 +46,3 @@ func init() {
 func GetValueFor(key string) string {
 	return Values.GetString(key)
 }
-

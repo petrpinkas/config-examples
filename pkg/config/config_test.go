@@ -61,11 +61,11 @@ var _ = Describe("Config Loading", func() {
 		// Create a temporary invalid YAML file
 		tmpFile, err := os.CreateTemp("", "invalid-*.yaml")
 		Expect(err).NotTo(HaveOccurred())
-		defer os.Remove(tmpFile.Name())
+		defer func() { _ = os.Remove(tmpFile.Name()) }()
 
 		_, err = tmpFile.WriteString("invalid: yaml: content: [")
 		Expect(err).NotTo(HaveOccurred())
-		tmpFile.Close()
+		_ = tmpFile.Close()
 
 		_, err = LoadConfig(tmpFile.Name())
 		Expect(err).To(HaveOccurred())
@@ -99,7 +99,7 @@ var _ = Describe("Config Updates", func() {
 	It("should update metadata.labels", func() {
 		err := UpdateConfig(config, "metadata.labels.test=value")
 		Expect(err).NotTo(HaveOccurred())
-		
+
 		metadata, ok := config.Data["metadata"].(map[string]interface{})
 		Expect(ok).To(BeTrue())
 		labels, ok := metadata["labels"].(map[string]interface{})
@@ -196,7 +196,7 @@ var _ = Describe("Find Config Files", func() {
 		// Create a temporary directory with both extensions
 		tmpDir, err := os.MkdirTemp("", "test-configs-*")
 		Expect(err).NotTo(HaveOccurred())
-		defer os.RemoveAll(tmpDir)
+		defer func() { _ = os.RemoveAll(tmpDir) }()
 
 		// Create .yaml file
 		yamlFile := filepath.Join(tmpDir, "test.yaml")
@@ -216,7 +216,7 @@ var _ = Describe("Find Config Files", func() {
 	It("should return empty slice for empty directory", func() {
 		tmpDir, err := os.MkdirTemp("", "empty-*")
 		Expect(err).NotTo(HaveOccurred())
-		defer os.RemoveAll(tmpDir)
+		defer func() { _ = os.RemoveAll(tmpDir) }()
 
 		files, err := FindConfigFiles(tmpDir)
 		Expect(err).NotTo(HaveOccurred())
@@ -228,4 +228,3 @@ var _ = Describe("Find Config Files", func() {
 		Expect(err).To(HaveOccurred())
 	})
 })
-

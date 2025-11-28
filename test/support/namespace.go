@@ -46,4 +46,3 @@ func CreateNamespaceStep(cli client.Client, callback func(*v1.Namespace)) func(c
 		callback(namespace)
 	}
 }
-

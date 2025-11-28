@@ -4,9 +4,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/spf13/viper"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/spf13/viper"
 )
 
 func TestAPI(t *testing.T) {
@@ -39,9 +39,9 @@ var _ = Describe("Configuration Values", func() {
 	})
 
 	It("should return environment variable values when set", func() {
-		os.Setenv("OIDC_USER", "testuser")
-		os.Setenv("SIGSTORE_FULCIO_URL", "https://fulcio.example.com")
-		os.Setenv("TUF_URL", "https://tuf.example.com")
+		_ = os.Setenv("OIDC_USER", "testuser")
+		_ = os.Setenv("SIGSTORE_FULCIO_URL", "https://fulcio.example.com")
+		_ = os.Setenv("TUF_URL", "https://tuf.example.com")
 
 		Expect(GetValueFor(OidcUser)).To(Equal("testuser"))
 		Expect(GetValueFor(FulcioURL)).To(Equal("https://fulcio.example.com"))
@@ -54,4 +54,3 @@ var _ = Describe("Configuration Values", func() {
 		Expect(GetValueFor(OidcIssuerURL)).To(BeEmpty())
 	})
 })
-

@@ -49,4 +49,3 @@ func InstallConfig(ctx context.Context, cli client.Client, cfg *config.Config) e
 
 	return nil
 }
-

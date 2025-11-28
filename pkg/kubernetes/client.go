@@ -32,4 +32,3 @@ func GetClient() (client.Client, error) {
 	})
 	return k8sClient, err
 }
-

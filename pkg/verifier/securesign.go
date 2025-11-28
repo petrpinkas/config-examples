@@ -88,4 +88,3 @@ func GetReadyCondition(obj *unstructured.Unstructured) types.GomegaMatcher {
 		return IsReady(o)
 	}, BeTrue())
 }
-
