@@ -2,9 +2,7 @@ package rhtas
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
-	"unicode"
 
 	"github.com/petrpinkas/config-examples/pkg/config"
 	"github.com/petrpinkas/config-examples/pkg/installer"
@@ -18,167 +16,141 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// discoverScenarios finds all scenario directories in the scenarios folder
-func discoverScenarios() ([]string, error) {
+// Initialize tests for all discovered scenarios at package level
+// This creates parametrized tests where each scenario is a parameter
+func init() {
 	scenariosDir := filepath.Join("..", "..", "scenarios")
-	var scenarios []string
-
-	entries, err := os.ReadDir(scenariosDir)
+	scenarios, err := support.DiscoverScenarios(scenariosDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read scenarios directory: %w", err)
+		panic(fmt.Sprintf("Failed to discover scenarios: %v", err))
+	}
+	if len(scenarios) == 0 {
+		panic("No scenarios found")
 	}
 
-	for _, entry := range entries {
-		if entry.IsDir() {
-			// Check if this directory contains a template file
-			scenarioName := entry.Name()
-			templatePattern := fmt.Sprintf("rhtas-%s-template.yaml", scenarioName)
-			templatePath := filepath.Join(scenariosDir, scenarioName, templatePattern)
+	// Log found template files
+	support.LogFoundTemplates(scenariosDir, scenarios, "default")
 
-			if _, err := os.Stat(templatePath); err == nil {
-				scenarios = append(scenarios, scenarioName)
+	// Create parametrized tests for each scenario
+	for _, scenarioName := range scenarios {
+		testScenario(scenarioName)
+	}
+}
+
+// scenarioTestContext holds the test context for a scenario
+type scenarioTestContext struct {
+	scenarioName     string
+	configPath       string
+	k8sClient        client.Client
+	namespace        *v1.Namespace
+	securesignConfig *config.Config
+	securesignName   string
+	dryRun           bool
+}
+
+// setupScenario performs all setup steps for a scenario
+func setupScenario(ctx SpecContext, scenarioName string) *scenarioTestContext {
+	testCtx := &scenarioTestContext{
+		scenarioName: scenarioName,
+		dryRun:       support.IsDryRun(),
+	}
+
+	if testCtx.dryRun {
+		fmt.Printf("DRY RUN MODE: Skipping OpenShift operations for scenario: %s\n", scenarioName)
+		// Create a mock namespace name for dry run
+		testCtx.namespace = &v1.Namespace{}
+		testCtx.namespace.Name = fmt.Sprintf("dry-run-namespace-%s", scenarioName)
+	} else {
+		// Initialize Kubernetes client
+		var err error
+		testCtx.k8sClient, err = kubernetes.GetClient()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(testCtx.k8sClient).NotTo(BeNil())
+
+		// Create namespace
+		testCtx.namespace = support.CreateTestNamespace(ctx, testCtx.k8sClient)
+	}
+
+	// Process template with conf file to generate the final YAML
+	scenariosDir := filepath.Join("..", "..", "scenarios")
+	var err error
+	testCtx.configPath, err = config.ProcessScenarioTemplate(
+		scenarioName,
+		scenariosDir,
+		testCtx.namespace.Name,
+		"securesign-sample",
+		"default",
+	)
+	Expect(err).NotTo(HaveOccurred(), "Failed to process template")
+	fmt.Printf("Processing scenario: %s (%s) in namespace: %s\n", scenarioName, testCtx.configPath, testCtx.namespace.Name)
+
+	// Load configuration
+	testCtx.securesignConfig, err = config.LoadConfig(testCtx.configPath)
+	Expect(err).NotTo(HaveOccurred())
+	testCtx.securesignName = testCtx.securesignConfig.GetName()
+
+	if testCtx.dryRun {
+		fmt.Printf("DRY RUN: Would install Securesign: %s in namespace: %s\n", testCtx.securesignName, testCtx.namespace.Name)
+	} else {
+		fmt.Printf("Installing Securesign: %s in namespace: %s\n", testCtx.securesignName, testCtx.namespace.Name)
+
+		// Install the Securesign configuration
+		err = installer.InstallConfig(ctx, testCtx.k8sClient, testCtx.securesignConfig)
+		Expect(err).NotTo(HaveOccurred())
+		fmt.Printf("Securesign CR created, waiting for installation...\n")
+
+		// Register cleanup: Delete Securesign CR first, then namespace
+		DeferCleanup(func(ctx SpecContext) {
+			// Delete Securesign CR
+			obj := verifier.Get(ctx, testCtx.k8sClient, testCtx.namespace.Name, testCtx.securesignName)
+			if obj != nil {
+				fmt.Printf("Deleting Securesign CR: %s/%s\n", testCtx.namespace.Name, testCtx.securesignName)
+				Expect(testCtx.k8sClient.Delete(ctx, obj)).To(Succeed())
 			}
-		}
+
+			// Delete namespace
+			fmt.Printf("Deleting test namespace: %s\n", testCtx.namespace.Name)
+			Expect(testCtx.k8sClient.Delete(ctx, testCtx.namespace)).To(Succeed())
+		})
 	}
 
-	return scenarios, nil
+	return testCtx
 }
 
-// capitalizeFirst capitalizes the first letter of a string
-func capitalizeFirst(s string) string {
-	if s == "" {
-		return s
-	}
-	r := []rune(s)
-	return string(append([]rune{unicode.ToUpper(r[0])}, r[1:]...))
-}
-
-// isDryRun checks if dry run mode is enabled via DRY_RUN environment variable
-func isDryRun() bool {
-	return os.Getenv("DRY_RUN") == "true" || os.Getenv("DRY_RUN") == "1"
-}
-
-// testScenario creates a test for a specific scenario
+// testScenario creates a test for a specific scenario using parametrized approach
 func testScenario(scenarioName string) {
-	Describe(fmt.Sprintf("%s Scenario", capitalizeFirst(scenarioName)), Ordered, func() {
-		var configPath string
-		var k8sClient client.Client
-		var namespace *v1.Namespace
-		var securesignConfig *config.Config
-		var securesignName string
-		var dryRun bool
-
-		BeforeAll(func() {
-			dryRun = isDryRun()
-			if dryRun {
-				fmt.Printf("DRY RUN MODE: Skipping OpenShift operations for scenario: %s\n", scenarioName)
-			}
-		})
+	yamlFileName := fmt.Sprintf("rhtas-%s-default.yaml", scenarioName)
+	Describe(fmt.Sprintf("Scenario %s", yamlFileName), Ordered, func() {
+		var testCtx *scenarioTestContext
 
 		BeforeAll(func(ctx SpecContext) {
-			if dryRun {
-				// Skip Kubernetes client initialization in dry run mode
-				return
-			}
-			var err error
-			k8sClient, err = kubernetes.GetClient()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(k8sClient).NotTo(BeNil())
-		})
-
-		BeforeAll(func(ctx SpecContext) {
-			if dryRun {
-				// Create a mock namespace name for dry run
-				namespace = &v1.Namespace{}
-				namespace.Name = fmt.Sprintf("dry-run-namespace-%s", scenarioName)
-				return
-			}
-			namespace = support.CreateTestNamespace(ctx, k8sClient)
-		})
-
-		BeforeAll(func() {
-			scenarioDir := filepath.Join("..", "..", "scenarios", scenarioName)
-			baseName := fmt.Sprintf("rhtas-%s", scenarioName)
-			variantName := "default"
-
-			// Create runtime context with standard placeholders
-			runtimeCtx := &config.RuntimeContext{
-				Namespace:    namespace.Name,
-				InstanceName: "securesign-sample",
-			}
-
-			// Process template with conf file to generate the final YAML
-			var err error
-			configPath, err = config.ProcessTemplateFromPaths(scenarioDir, baseName, variantName, runtimeCtx)
-			Expect(err).NotTo(HaveOccurred(), "Failed to process template")
-			fmt.Printf("Processing scenario: %s (%s) in namespace: %s\n", scenarioName, configPath, namespace.Name)
-		})
-
-		BeforeAll(func(ctx SpecContext) {
-			var err error
-			securesignConfig, err = config.LoadConfig(configPath)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Namespace and instance name are already set via placeholders during template processing
-			securesignName = securesignConfig.GetName()
-			if dryRun {
-				fmt.Printf("DRY RUN: Would install Securesign: %s in namespace: %s\n", securesignName, namespace.Name)
-			} else {
-				fmt.Printf("Installing Securesign: %s in namespace: %s\n", securesignName, namespace.Name)
-			}
-		})
-
-		BeforeAll(func(ctx SpecContext) {
-			if dryRun {
-				// Skip actual installation in dry run mode
-				fmt.Printf("DRY RUN: Skipping Securesign CR installation\n")
-				return
-			}
-
-			// Install the Securesign configuration
-			err := installer.InstallConfig(ctx, k8sClient, securesignConfig)
-			Expect(err).NotTo(HaveOccurred())
-			fmt.Printf("Securesign CR created, waiting for installation...\n")
-
-			// Register cleanup: Delete Securesign CR first, then namespace
-			DeferCleanup(func(ctx SpecContext) {
-				// Delete Securesign CR
-				obj := verifier.Get(ctx, k8sClient, namespace.Name, securesignName)
-				if obj != nil {
-					fmt.Printf("Deleting Securesign CR: %s/%s\n", namespace.Name, securesignName)
-					Expect(k8sClient.Delete(ctx, obj)).To(Succeed())
-				}
-
-				// Delete namespace
-				fmt.Printf("Deleting test namespace: %s\n", namespace.Name)
-				Expect(k8sClient.Delete(ctx, namespace)).To(Succeed())
-			})
+			testCtx = setupScenario(ctx, scenarioName)
 		})
 
 		Describe("Config Loading", func() {
 			It("should load the configuration file", func() {
-				Expect(securesignConfig).NotTo(BeNil())
-				Expect(securesignConfig.Data).NotTo(BeNil())
+				Expect(testCtx.securesignConfig).NotTo(BeNil())
+				Expect(testCtx.securesignConfig.Data).NotTo(BeNil())
 			})
 
 			It("should have correct resource type", func() {
-				Expect(securesignConfig.GetKind()).To(Equal("Securesign"))
-				Expect(securesignConfig.GetAPIVersion()).To(Equal("rhtas.redhat.com/v1alpha1"))
+				Expect(testCtx.securesignConfig.GetKind()).To(Equal("Securesign"))
+				Expect(testCtx.securesignConfig.GetAPIVersion()).To(Equal("rhtas.redhat.com/v1alpha1"))
 			})
 
 			It("should have metadata", func() {
-				Expect(securesignConfig.GetName()).To(Equal("securesign-sample"))
-				Expect(securesignConfig.GetNamespace()).To(Equal(namespace.Name))
+				Expect(testCtx.securesignConfig.GetName()).To(Equal("securesign-sample"))
+				Expect(testCtx.securesignConfig.GetNamespace()).To(Equal(testCtx.namespace.Name))
 			})
 
 			It("should have spec section", func() {
-				spec, ok := securesignConfig.Data["spec"].(map[string]interface{})
+				spec, ok := testCtx.securesignConfig.Data["spec"].(map[string]interface{})
 				Expect(ok).To(BeTrue())
 				Expect(spec).NotTo(BeNil())
 			})
 
 			It("should have fulcio configuration in spec", func() {
-				spec, ok := securesignConfig.Data["spec"].(map[string]interface{})
+				spec, ok := testCtx.securesignConfig.Data["spec"].(map[string]interface{})
 				Expect(ok).To(BeTrue())
 
 				fulcio, ok := spec["fulcio"].(map[string]interface{})
@@ -189,40 +161,25 @@ func testScenario(scenarioName string) {
 
 		Describe("Securesign Installation", func() {
 			It("should install Securesign CR successfully", func(ctx SpecContext) {
-				if dryRun {
-					fmt.Printf("DRY RUN: Skipping CR verification (would check: %s/%s)\n", namespace.Name, securesignName)
+				if testCtx.dryRun {
+					fmt.Printf("DRY RUN: Skipping CR verification (would check: %s/%s)\n", testCtx.namespace.Name, testCtx.securesignName)
 					return
 				}
 				// Verify the CR exists
-				obj := verifier.Get(ctx, k8sClient, namespace.Name, securesignName)
+				obj := verifier.Get(ctx, testCtx.k8sClient, testCtx.namespace.Name, testCtx.securesignName)
 				Expect(obj).NotTo(BeNil())
-				fmt.Printf("Securesign CR found: %s/%s\n", namespace.Name, securesignName)
+				fmt.Printf("Securesign CR found: %s/%s\n", testCtx.namespace.Name, testCtx.securesignName)
 			})
 
 			It("should wait for Securesign to be ready", func(ctx SpecContext) {
-				if dryRun {
-					fmt.Printf("DRY RUN: Skipping readiness verification (would wait for: %s/%s)\n", namespace.Name, securesignName)
+				if testCtx.dryRun {
+					fmt.Printf("DRY RUN: Skipping readiness verification (would wait for: %s/%s)\n", testCtx.namespace.Name, testCtx.securesignName)
 					return
 				}
-				fmt.Printf("Waiting for Securesign %s/%s to be ready...\n", namespace.Name, securesignName)
-				verifier.Verify(ctx, k8sClient, namespace.Name, securesignName)
-				fmt.Printf("Securesign %s/%s is ready!\n", namespace.Name, securesignName)
+				fmt.Printf("Waiting for Securesign %s/%s to be ready...\n", testCtx.namespace.Name, testCtx.securesignName)
+				verifier.Verify(ctx, testCtx.k8sClient, testCtx.namespace.Name, testCtx.securesignName)
+				fmt.Printf("Securesign %s/%s is ready!\n", testCtx.namespace.Name, testCtx.securesignName)
 			})
 		})
 	})
-}
-
-// Initialize tests for all discovered scenarios at package level
-func init() {
-	scenarios, err := discoverScenarios()
-	if err != nil {
-		panic(fmt.Sprintf("Failed to discover scenarios: %v", err))
-	}
-	if len(scenarios) == 0 {
-		panic("No scenarios found")
-	}
-
-	for _, scenarioName := range scenarios {
-		testScenario(scenarioName)
-	}
 }
