@@ -41,9 +41,15 @@ var _ = Describe("Basic Scenario", Ordered, func() {
 		baseName := "rhtas-basic"
 		variantName := "default"
 
+		// Create runtime context with standard placeholders
+		runtimeCtx := &config.RuntimeContext{
+			Namespace:    namespace.Name,
+			InstanceName: "securesign-sample",
+		}
+
 		// Process template with conf file to generate the final YAML
 		var err error
-		configPath, err = config.ProcessTemplateFromPaths(scenarioDir, baseName, variantName)
+		configPath, err = config.ProcessTemplateFromPaths(scenarioDir, baseName, variantName, runtimeCtx)
 		Expect(err).NotTo(HaveOccurred(), "Failed to process template")
 		fmt.Printf("Processing scenario: %s (%s) in namespace: %s\n", scenarioName, configPath, namespace.Name)
 	})
@@ -53,10 +59,7 @@ var _ = Describe("Basic Scenario", Ordered, func() {
 		securesignConfig, err = config.LoadConfig(configPath)
 		Expect(err).NotTo(HaveOccurred())
 
-		// Update namespace to use the created test namespace
-		err = config.UpdateConfig(securesignConfig, fmt.Sprintf("metadata.namespace=%s", namespace.Name))
-		Expect(err).NotTo(HaveOccurred())
-
+		// Namespace and instance name are already set via placeholders during template processing
 		securesignName = securesignConfig.GetName()
 		fmt.Printf("Installing Securesign: %s in namespace: %s\n", securesignName, namespace.Name)
 	})

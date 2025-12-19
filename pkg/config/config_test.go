@@ -37,7 +37,11 @@ var _ = Describe("Config Loading", func() {
 		scenarioDir := filepath.Join(projectRoot, "scenarios", "basic")
 		
 		// Generate config file from template first
-		configPath, err := ProcessTemplateFromPaths(scenarioDir, "rhtas-basic", "default")
+		runtimeCtx := &RuntimeContext{
+			Namespace:    "test-namespace",
+			InstanceName: "securesign-sample",
+		}
+		configPath, err := ProcessTemplateFromPaths(scenarioDir, "rhtas-basic", "default", runtimeCtx)
 		Expect(err).NotTo(HaveOccurred())
 		
 		config, err := LoadConfig(configPath)
@@ -86,7 +90,11 @@ var _ = Describe("Config Updates", func() {
 		scenarioDir := filepath.Join(projectRoot, "scenarios", "basic")
 		
 		// Generate config file from template first
-		configPath, err := ProcessTemplateFromPaths(scenarioDir, "rhtas-basic", "default")
+		runtimeCtx := &RuntimeContext{
+			Namespace:    "test-namespace",
+			InstanceName: "securesign-sample",
+		}
+		configPath, err := ProcessTemplateFromPaths(scenarioDir, "rhtas-basic", "default", runtimeCtx)
 		Expect(err).NotTo(HaveOccurred())
 		
 		config, err = LoadConfig(configPath)
@@ -159,7 +167,11 @@ var _ = Describe("Config to YAML", func() {
 		scenarioDir := filepath.Join(projectRoot, "scenarios", "basic")
 		
 		// Generate config file from template first
-		configPath, err := ProcessTemplateFromPaths(scenarioDir, "rhtas-basic", "default")
+		runtimeCtx := &RuntimeContext{
+			Namespace:    "test-namespace",
+			InstanceName: "securesign-sample",
+		}
+		configPath, err := ProcessTemplateFromPaths(scenarioDir, "rhtas-basic", "default", runtimeCtx)
 		Expect(err).NotTo(HaveOccurred())
 		
 		config, err := LoadConfig(configPath)
@@ -202,7 +214,11 @@ var _ = Describe("Find Config Files", func() {
 		dir := filepath.Join(projectRoot, "scenarios", "basic")
 		
 		// Generate config file from template first
-		_, err := ProcessTemplateFromPaths(dir, "rhtas-basic", "default")
+		runtimeCtx := &RuntimeContext{
+			Namespace:    "test-namespace",
+			InstanceName: "securesign-sample",
+		}
+		_, err := ProcessTemplateFromPaths(dir, "rhtas-basic", "default", runtimeCtx)
 		Expect(err).NotTo(HaveOccurred())
 		
 		files, err := FindConfigFiles(dir)

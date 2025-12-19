@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -13,6 +14,14 @@ import (
 // It uses map[string]interface{} to be flexible with different resource structures
 type Config struct {
 	Data map[string]interface{}
+}
+
+// RuntimeContext holds runtime values that can be used as placeholders in templates
+// These are standard values that are available for all test scenarios
+type RuntimeContext struct {
+	Namespace     string
+	InstanceName  string
+	// Future: Timestamp, TestID, etc.
 }
 
 // LoadConfig loads a YAML configuration file
@@ -181,29 +190,39 @@ func LoadConfFile(filePath string) (map[string]string, error) {
 // templatePath: path to the template YAML file (e.g., "rhtas-basic-template.yaml")
 // confPath: path to the conf file (e.g., "rhtas-basic-default.conf")
 // outputPath: path where the processed YAML will be written (e.g., "rhtas-basic-default.yaml")
-func ProcessTemplate(templatePath, confPath, outputPath string) error {
+// runtimeCtx: runtime context with standard placeholders (Namespace, InstanceName, etc.)
+func ProcessTemplate(templatePath, confPath, outputPath string, runtimeCtx *RuntimeContext) error {
 	// Load conf file
 	confValues, err := LoadConfFile(confPath)
 	if err != nil {
 		return fmt.Errorf("failed to load conf file: %w", err)
 	}
 
-	// Load template YAML
+	// Replace runtime placeholders in conf values first
+	// This allows conf files to use {{NAMESPACE}}, {{INSTANCE_NAME}}, etc.
+	confValues = replaceRuntimePlaceholdersInMap(confValues, runtimeCtx)
+
+	// Load template YAML as raw string
 	templateData, err := os.ReadFile(templatePath)
 	if err != nil {
 		return fmt.Errorf("failed to read template file: %w", err)
 	}
 
+	// First pass: Replace runtime placeholders in raw YAML string
+	// This must happen before parsing because {{PLACEHOLDER}} is not valid YAML syntax
+	templateDataStr := string(templateData)
+	templateDataStr = replaceRuntimePlaceholdersInString(templateDataStr, runtimeCtx)
+
 	// Parse template as YAML to work with structured data
 	var templateConfig map[string]interface{}
-	if err := yaml.Unmarshal(templateData, &templateConfig); err != nil {
+	if err := yaml.Unmarshal([]byte(templateDataStr), &templateConfig); err != nil {
 		return fmt.Errorf("failed to parse template YAML: %w", err)
 	}
 
-	// Replace placeholder values in the config structure
+	// Second pass: Replace template placeholders (like 'https://your-oidc-issuer-url')
 	// The placeholder in YAML is 'https://your-oidc-issuer-url' but after unmarshaling it becomes https://your-oidc-issuer-url
 	placeholder := "https://your-oidc-issuer-url"
-	replacePlaceholders(templateConfig, placeholder, confValues)
+	replaceTemplatePlaceholders(templateConfig, placeholder, confValues)
 
 	// Convert back to YAML
 	outputData, err := yaml.Marshal(templateConfig)
@@ -219,10 +238,64 @@ func ProcessTemplate(templatePath, confPath, outputPath string) error {
 	return nil
 }
 
-// replacePlaceholders recursively replaces placeholder values in the config structure
+// replaceRuntimePlaceholdersInString replaces {{PLACEHOLDER}} patterns in a raw string
+// This handles placeholders like {{NAMESPACE}}, {{INSTANCE_NAME}}, etc.
+// This must be called before YAML parsing because {{PLACEHOLDER}} is not valid YAML syntax
+func replaceRuntimePlaceholdersInString(content string, runtimeCtx *RuntimeContext) string {
+	if runtimeCtx == nil {
+		return content
+	}
+
+	placeholderRegex := regexp.MustCompile(`\{\{(\w+)\}\}`)
+
+	return placeholderRegex.ReplaceAllStringFunc(content, func(match string) string {
+		// Extract placeholder name (e.g., "NAMESPACE" from "{{NAMESPACE}}")
+		placeholderName := strings.Trim(match, "{}")
+		switch placeholderName {
+		case "NAMESPACE":
+			return runtimeCtx.Namespace
+		case "INSTANCE_NAME":
+			return runtimeCtx.InstanceName
+		default:
+			// Unknown placeholder, leave as-is
+			return match
+		}
+	})
+}
+
+// replaceRuntimePlaceholdersInMap replaces {{PLACEHOLDER}} patterns in a map of strings
+// This is used to process conf file values that may contain runtime placeholders
+func replaceRuntimePlaceholdersInMap(values map[string]string, runtimeCtx *RuntimeContext) map[string]string {
+	if runtimeCtx == nil {
+		return values
+	}
+
+	placeholderRegex := regexp.MustCompile(`\{\{(\w+)\}\}`)
+	result := make(map[string]string)
+
+	for key, value := range values {
+		replaced := placeholderRegex.ReplaceAllStringFunc(value, func(match string) string {
+			placeholderName := strings.Trim(match, "{}")
+			switch placeholderName {
+			case "NAMESPACE":
+				return runtimeCtx.Namespace
+			case "INSTANCE_NAME":
+				return runtimeCtx.InstanceName
+			default:
+				return match
+			}
+		})
+		result[key] = replaced
+	}
+
+	return result
+}
+
+// replaceTemplatePlaceholders recursively replaces template placeholder values in the config structure
 // It looks for the placeholder string and replaces it with values from confValues
 // based on the field name (key in confValues)
-func replacePlaceholders(data interface{}, placeholder string, confValues map[string]string) {
+// This handles static template placeholders like 'https://your-oidc-issuer-url'
+func replaceTemplatePlaceholders(data interface{}, placeholder string, confValues map[string]string) {
 	switch v := data.(type) {
 	case map[string]interface{}:
 		for key, val := range v {
@@ -234,12 +307,12 @@ func replacePlaceholders(data interface{}, placeholder string, confValues map[st
 				}
 			} else {
 				// Recursively process nested structures
-				replacePlaceholders(val, placeholder, confValues)
+				replaceTemplatePlaceholders(val, placeholder, confValues)
 			}
 		}
 	case []interface{}:
 		for _, item := range v {
-			replacePlaceholders(item, placeholder, confValues)
+			replaceTemplatePlaceholders(item, placeholder, confValues)
 		}
 	}
 }
@@ -248,13 +321,14 @@ func replacePlaceholders(data interface{}, placeholder string, confValues map[st
 // scenarioDir: directory containing the template and conf files (e.g., "scenarios/basic")
 // scenarioName: base name of the scenario (e.g., "rhtas-basic")
 // variantName: variant name (e.g., "default")
+// runtimeCtx: runtime context with standard placeholders (Namespace, InstanceName, etc.)
 // Returns the path to the generated YAML file
-func ProcessTemplateFromPaths(scenarioDir, scenarioName, variantName string) (string, error) {
+func ProcessTemplateFromPaths(scenarioDir, scenarioName, variantName string, runtimeCtx *RuntimeContext) (string, error) {
 	templatePath := filepath.Join(scenarioDir, scenarioName+"-template.yaml")
 	confPath := filepath.Join(scenarioDir, scenarioName+"-"+variantName+".conf")
 	outputPath := filepath.Join(scenarioDir, scenarioName+"-"+variantName+".yaml")
 
-	if err := ProcessTemplate(templatePath, confPath, outputPath); err != nil {
+	if err := ProcessTemplate(templatePath, confPath, outputPath, runtimeCtx); err != nil {
 		return "", err
 	}
 

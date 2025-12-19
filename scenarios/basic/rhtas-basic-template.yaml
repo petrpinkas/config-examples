@@ -4,11 +4,11 @@ metadata:
   annotations:
     rhtas.redhat.com/metrics: 'true'
   labels:
-    app.kubernetes.io/instance: securesign-sample
-    app.kubernetes.io/name: securesign-sample
+    app.kubernetes.io/instance: {{INSTANCE_NAME}}
+    app.kubernetes.io/name: {{INSTANCE_NAME}}
     app.kubernetes.io/part-of: trusted-artifact-signer
-  name: securesign-sample
-  namespace: a01-ppinkas-tas
+  name: {{INSTANCE_NAME}}
+  namespace: {{NAMESPACE}}
 spec:
   ctlog:
     monitoring:
