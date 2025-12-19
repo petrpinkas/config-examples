@@ -43,7 +43,7 @@ func LogFoundTemplates(scenariosDir string, scenarios []string, variantName stri
 		baseName := fmt.Sprintf("rhtas-%s", scenarioName)
 		templateFile := baseName + "-template.yaml"
 		confFile := baseName + "-" + variantName + ".conf"
-		outputFile := baseName + "-" + variantName + ".yaml"
+		outputFile := baseName + "-" + variantName + "-scenario.yaml"
 		
 		// Show relative path from project root (scenarios is in active folder)
 		scenarioPath := filepath.Join("scenarios", scenarioName)

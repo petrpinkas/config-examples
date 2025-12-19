@@ -326,7 +326,7 @@ func replaceTemplatePlaceholders(data interface{}, placeholder string, confValue
 func ProcessTemplateFromPaths(scenarioDir, scenarioName, variantName string, runtimeCtx *RuntimeContext) (string, error) {
 	templatePath := filepath.Join(scenarioDir, scenarioName+"-template.yaml")
 	confPath := filepath.Join(scenarioDir, scenarioName+"-"+variantName+".conf")
-	outputPath := filepath.Join(scenarioDir, scenarioName+"-"+variantName+".yaml")
+	outputPath := filepath.Join(scenarioDir, scenarioName+"-"+variantName+"-scenario.yaml")
 
 	fmt.Printf("Processing: %s, %s, %s\n", templatePath, confPath, outputPath)
 

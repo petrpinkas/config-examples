@@ -119,7 +119,7 @@ func setupScenario(ctx SpecContext, scenarioName string) *scenarioTestContext {
 
 // testScenario creates a test for a specific scenario using parametrized approach
 func testScenario(scenarioName string) {
-	yamlFileName := fmt.Sprintf("rhtas-%s-default.yaml", scenarioName)
+	yamlFileName := fmt.Sprintf("rhtas-%s-default-scenario.yaml", scenarioName)
 	Describe(fmt.Sprintf("Scenario %s", yamlFileName), Ordered, func() {
 		var testCtx *scenarioTestContext
 
