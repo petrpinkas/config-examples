@@ -53,6 +53,11 @@ func capitalizeFirst(s string) string {
 	return string(append([]rune{unicode.ToUpper(r[0])}, r[1:]...))
 }
 
+// isDryRun checks if dry run mode is enabled via DRY_RUN environment variable
+func isDryRun() bool {
+	return os.Getenv("DRY_RUN") == "true" || os.Getenv("DRY_RUN") == "1"
+}
+
 // testScenario creates a test for a specific scenario
 func testScenario(scenarioName string) {
 	Describe(fmt.Sprintf("%s Scenario", capitalizeFirst(scenarioName)), Ordered, func() {
@@ -61,8 +66,20 @@ func testScenario(scenarioName string) {
 		var namespace *v1.Namespace
 		var securesignConfig *config.Config
 		var securesignName string
+		var dryRun bool
+
+		BeforeAll(func() {
+			dryRun = isDryRun()
+			if dryRun {
+				fmt.Printf("DRY RUN MODE: Skipping OpenShift operations for scenario: %s\n", scenarioName)
+			}
+		})
 
 		BeforeAll(func(ctx SpecContext) {
+			if dryRun {
+				// Skip Kubernetes client initialization in dry run mode
+				return
+			}
 			var err error
 			k8sClient, err = kubernetes.GetClient()
 			Expect(err).NotTo(HaveOccurred())
@@ -70,6 +87,12 @@ func testScenario(scenarioName string) {
 		})
 
 		BeforeAll(func(ctx SpecContext) {
+			if dryRun {
+				// Create a mock namespace name for dry run
+				namespace = &v1.Namespace{}
+				namespace.Name = fmt.Sprintf("dry-run-namespace-%s", scenarioName)
+				return
+			}
 			namespace = support.CreateTestNamespace(ctx, k8sClient)
 		})
 
@@ -98,10 +121,20 @@ func testScenario(scenarioName string) {
 
 			// Namespace and instance name are already set via placeholders during template processing
 			securesignName = securesignConfig.GetName()
-			fmt.Printf("Installing Securesign: %s in namespace: %s\n", securesignName, namespace.Name)
+			if dryRun {
+				fmt.Printf("DRY RUN: Would install Securesign: %s in namespace: %s\n", securesignName, namespace.Name)
+			} else {
+				fmt.Printf("Installing Securesign: %s in namespace: %s\n", securesignName, namespace.Name)
+			}
 		})
 
 		BeforeAll(func(ctx SpecContext) {
+			if dryRun {
+				// Skip actual installation in dry run mode
+				fmt.Printf("DRY RUN: Skipping Securesign CR installation\n")
+				return
+			}
+
 			// Install the Securesign configuration
 			err := installer.InstallConfig(ctx, k8sClient, securesignConfig)
 			Expect(err).NotTo(HaveOccurred())
@@ -156,6 +189,10 @@ func testScenario(scenarioName string) {
 
 		Describe("Securesign Installation", func() {
 			It("should install Securesign CR successfully", func(ctx SpecContext) {
+				if dryRun {
+					fmt.Printf("DRY RUN: Skipping CR verification (would check: %s/%s)\n", namespace.Name, securesignName)
+					return
+				}
 				// Verify the CR exists
 				obj := verifier.Get(ctx, k8sClient, namespace.Name, securesignName)
 				Expect(obj).NotTo(BeNil())
@@ -163,6 +200,10 @@ func testScenario(scenarioName string) {
 			})
 
 			It("should wait for Securesign to be ready", func(ctx SpecContext) {
+				if dryRun {
+					fmt.Printf("DRY RUN: Skipping readiness verification (would wait for: %s/%s)\n", namespace.Name, securesignName)
+					return
+				}
 				fmt.Printf("Waiting for Securesign %s/%s to be ready...\n", namespace.Name, securesignName)
 				verifier.Verify(ctx, k8sClient, namespace.Name, securesignName)
 				fmt.Printf("Securesign %s/%s is ready!\n", namespace.Name, securesignName)
