@@ -11,19 +11,29 @@ Run all tests:
 go test -v ./test/... --ginkgo.v
 ```
 
-Run specific scenario (using focus):
+Run a specific scenario by YAML filename:
 ```bash
-go test -v ./test/... --ginkgo.v --ginkgo.focus "Basic Scenario"
+go test -v ./test/... --ginkgo.v --ginkgo.focus "rhtas-basic-default.yaml"
 ```
 
-Run specific test group:
+Run multiple scenarios (use regex with OR):
+```bash
+go test -v ./test/... --ginkgo.v --ginkgo.focus "rhtas-(basic|simple)-default.yaml"
+```
+
+Run a specific scenario by scenario name:
+```bash
+go test -v ./test/... --ginkgo.v --ginkgo.focus "Scenario.*basic"
+```
+
+Run specific test group across all scenarios:
 ```bash
 go test -v ./test/... --ginkgo.v --ginkgo.focus "Config Loading"
 ```
 
-Run with labels (if you add labels to tests):
+Skip a specific scenario:
 ```bash
-go test -v ./test/... --ginkgo.v --ginkgo.label-filter "scenario=basic"
+go test -v ./test/... --ginkgo.v --ginkgo.skip "rhtas-simple-default.yaml"
 ```
 
 ### Using Ginkgo CLI

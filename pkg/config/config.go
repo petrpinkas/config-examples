@@ -326,11 +326,45 @@ func replaceTemplatePlaceholders(data interface{}, placeholder string, confValue
 func ProcessTemplateFromPaths(scenarioDir, scenarioName, variantName string, runtimeCtx *RuntimeContext) (string, error) {
 	templatePath := filepath.Join(scenarioDir, scenarioName+"-template.yaml")
 	confPath := filepath.Join(scenarioDir, scenarioName+"-"+variantName+".conf")
-	outputPath := filepath.Join(scenarioDir, scenarioName+"-"+variantName+".yaml")
+	outputPath := filepath.Join(scenarioDir, scenarioName+"-"+variantName+"-scenario.yaml")
+
+	fmt.Printf("Processing: %s, %s, %s\n", templatePath, confPath, outputPath)
 
 	if err := ProcessTemplate(templatePath, confPath, outputPath, runtimeCtx); err != nil {
 		return "", err
 	}
 
 	return outputPath, nil
+}
+
+// ProcessScenarioTemplate processes a scenario template with the given runtime context
+// It generates the final YAML configuration file from the template and conf file.
+// This is a convenience function that constructs the scenario directory and base name
+// from the scenario name (assumes "rhtas-{scenarioName}" naming pattern).
+//
+// Parameters:
+//   - scenarioName: Name of the scenario (e.g., "basic", "simple")
+//   - scenariosDir: Base directory containing scenario directories (e.g., "../../scenarios")
+//   - namespace: Kubernetes namespace name
+//   - instanceName: Securesign instance name (default: "securesign-sample")
+//   - variantName: Variant name for the configuration (default: "default")
+//
+// Returns:
+//   - configPath: Path to the generated YAML configuration file
+//   - error: Any error encountered during processing
+func ProcessScenarioTemplate(scenarioName, scenariosDir, namespace, instanceName, variantName string) (string, error) {
+	scenarioDir := filepath.Join(scenariosDir, scenarioName)
+	baseName := fmt.Sprintf("rhtas-%s", scenarioName)
+
+	runtimeCtx := &RuntimeContext{
+		Namespace:    namespace,
+		InstanceName: instanceName,
+	}
+
+	configPath, err := ProcessTemplateFromPaths(scenarioDir, baseName, variantName, runtimeCtx)
+	if err != nil {
+		return "", fmt.Errorf("failed to process template for scenario %s: %w", scenarioName, err)
+	}
+
+	return configPath, nil
 }

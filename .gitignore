@@ -10,6 +10,9 @@ bin/
 # Go workspace file
 go.work
 
+# Generated YAML files from templates (keep template and conf files)
+*-scenario.yaml
+
 # Editor and IDE files
 .idea/
 .vscode/
