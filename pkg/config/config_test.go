@@ -34,7 +34,16 @@ func TestConfig(t *testing.T) {
 var _ = Describe("Config Loading", func() {
 	It("should load YAML configuration file", func() {
 		projectRoot := getProjectRoot()
-		configPath := filepath.Join(projectRoot, "scenarios", "basic", "rhtas-basic.yaml")
+		scenarioDir := filepath.Join(projectRoot, "scenarios", "basic")
+		
+		// Generate config file from template first
+		runtimeCtx := &RuntimeContext{
+			Namespace:    "test-namespace",
+			InstanceName: "securesign-sample",
+		}
+		configPath, err := ProcessTemplateFromPaths(scenarioDir, "rhtas-basic", "default", runtimeCtx)
+		Expect(err).NotTo(HaveOccurred())
+		
 		config, err := LoadConfig(configPath)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config).NotTo(BeNil())
@@ -78,8 +87,16 @@ var _ = Describe("Config Updates", func() {
 
 	BeforeEach(func() {
 		projectRoot := getProjectRoot()
-		configPath := filepath.Join(projectRoot, "scenarios", "basic", "rhtas-basic.yaml")
-		var err error
+		scenarioDir := filepath.Join(projectRoot, "scenarios", "basic")
+		
+		// Generate config file from template first
+		runtimeCtx := &RuntimeContext{
+			Namespace:    "test-namespace",
+			InstanceName: "securesign-sample",
+		}
+		configPath, err := ProcessTemplateFromPaths(scenarioDir, "rhtas-basic", "default", runtimeCtx)
+		Expect(err).NotTo(HaveOccurred())
+		
 		config, err = LoadConfig(configPath)
 		Expect(err).NotTo(HaveOccurred())
 	})
@@ -147,7 +164,16 @@ var _ = Describe("Config Updates", func() {
 var _ = Describe("Config to YAML", func() {
 	It("should convert config back to YAML", func() {
 		projectRoot := getProjectRoot()
-		configPath := filepath.Join(projectRoot, "scenarios", "basic", "rhtas-basic.yaml")
+		scenarioDir := filepath.Join(projectRoot, "scenarios", "basic")
+		
+		// Generate config file from template first
+		runtimeCtx := &RuntimeContext{
+			Namespace:    "test-namespace",
+			InstanceName: "securesign-sample",
+		}
+		configPath, err := ProcessTemplateFromPaths(scenarioDir, "rhtas-basic", "default", runtimeCtx)
+		Expect(err).NotTo(HaveOccurred())
+		
 		config, err := LoadConfig(configPath)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -186,10 +212,19 @@ var _ = Describe("Find Config Files", func() {
 	It("should find YAML files in directory", func() {
 		projectRoot := getProjectRoot()
 		dir := filepath.Join(projectRoot, "scenarios", "basic")
+		
+		// Generate config file from template first
+		runtimeCtx := &RuntimeContext{
+			Namespace:    "test-namespace",
+			InstanceName: "securesign-sample",
+		}
+		_, err := ProcessTemplateFromPaths(dir, "rhtas-basic", "default", runtimeCtx)
+		Expect(err).NotTo(HaveOccurred())
+		
 		files, err := FindConfigFiles(dir)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(files).NotTo(BeEmpty())
-		Expect(files).To(ContainElement(ContainSubstring("rhtas-basic.yaml")))
+		Expect(files).To(ContainElement(ContainSubstring("rhtas-basic-default.yaml")))
 	})
 
 	It("should find both .yaml and .yml files", func() {

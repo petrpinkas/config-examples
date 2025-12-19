@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -13,6 +14,14 @@ import (
 // It uses map[string]interface{} to be flexible with different resource structures
 type Config struct {
 	Data map[string]interface{}
+}
+
+// RuntimeContext holds runtime values that can be used as placeholders in templates
+// These are standard values that are available for all test scenarios
+type RuntimeContext struct {
+	Namespace     string
+	InstanceName  string
+	// Future: Timestamp, TestID, etc.
 }
 
 // LoadConfig loads a YAML configuration file
@@ -140,4 +149,188 @@ func FindConfigFiles(dir string) ([]string, error) {
 	})
 
 	return files, err
+}
+
+// LoadConfFile loads a .conf file with key=value pairs
+// Returns a map of key to value
+func LoadConfFile(filePath string) (map[string]string, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read conf file: %w", err)
+	}
+
+	config := make(map[string]string)
+	lines := strings.Split(string(data), "\n")
+
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		// Skip empty lines and comments
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid format in conf file at line %d: %s (expected key=value)", i+1, line)
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		if key == "" {
+			return nil, fmt.Errorf("empty key in conf file at line %d", i+1)
+		}
+
+		config[key] = value
+	}
+
+	return config, nil
+}
+
+// ProcessTemplate processes a template YAML file with values from a conf file
+// templatePath: path to the template YAML file (e.g., "rhtas-basic-template.yaml")
+// confPath: path to the conf file (e.g., "rhtas-basic-default.conf")
+// outputPath: path where the processed YAML will be written (e.g., "rhtas-basic-default.yaml")
+// runtimeCtx: runtime context with standard placeholders (Namespace, InstanceName, etc.)
+func ProcessTemplate(templatePath, confPath, outputPath string, runtimeCtx *RuntimeContext) error {
+	// Load conf file
+	confValues, err := LoadConfFile(confPath)
+	if err != nil {
+		return fmt.Errorf("failed to load conf file: %w", err)
+	}
+
+	// Replace runtime placeholders in conf values first
+	// This allows conf files to use {{NAMESPACE}}, {{INSTANCE_NAME}}, etc.
+	confValues = replaceRuntimePlaceholdersInMap(confValues, runtimeCtx)
+
+	// Load template YAML as raw string
+	templateData, err := os.ReadFile(templatePath)
+	if err != nil {
+		return fmt.Errorf("failed to read template file: %w", err)
+	}
+
+	// First pass: Replace runtime placeholders in raw YAML string
+	// This must happen before parsing because {{PLACEHOLDER}} is not valid YAML syntax
+	templateDataStr := string(templateData)
+	templateDataStr = replaceRuntimePlaceholdersInString(templateDataStr, runtimeCtx)
+
+	// Parse template as YAML to work with structured data
+	var templateConfig map[string]interface{}
+	if err := yaml.Unmarshal([]byte(templateDataStr), &templateConfig); err != nil {
+		return fmt.Errorf("failed to parse template YAML: %w", err)
+	}
+
+	// Second pass: Replace template placeholders (like 'https://your-oidc-issuer-url')
+	// The placeholder in YAML is 'https://your-oidc-issuer-url' but after unmarshaling it becomes https://your-oidc-issuer-url
+	placeholder := "https://your-oidc-issuer-url"
+	replaceTemplatePlaceholders(templateConfig, placeholder, confValues)
+
+	// Convert back to YAML
+	outputData, err := yaml.Marshal(templateConfig)
+	if err != nil {
+		return fmt.Errorf("failed to marshal processed YAML: %w", err)
+	}
+
+	// Write output file
+	if err := os.WriteFile(outputPath, outputData, 0644); err != nil {
+		return fmt.Errorf("failed to write output file: %w", err)
+	}
+
+	return nil
+}
+
+// replaceRuntimePlaceholdersInString replaces {{PLACEHOLDER}} patterns in a raw string
+// This handles placeholders like {{NAMESPACE}}, {{INSTANCE_NAME}}, etc.
+// This must be called before YAML parsing because {{PLACEHOLDER}} is not valid YAML syntax
+func replaceRuntimePlaceholdersInString(content string, runtimeCtx *RuntimeContext) string {
+	if runtimeCtx == nil {
+		return content
+	}
+
+	placeholderRegex := regexp.MustCompile(`\{\{(\w+)\}\}`)
+
+	return placeholderRegex.ReplaceAllStringFunc(content, func(match string) string {
+		// Extract placeholder name (e.g., "NAMESPACE" from "{{NAMESPACE}}")
+		placeholderName := strings.Trim(match, "{}")
+		switch placeholderName {
+		case "NAMESPACE":
+			return runtimeCtx.Namespace
+		case "INSTANCE_NAME":
+			return runtimeCtx.InstanceName
+		default:
+			// Unknown placeholder, leave as-is
+			return match
+		}
+	})
+}
+
+// replaceRuntimePlaceholdersInMap replaces {{PLACEHOLDER}} patterns in a map of strings
+// This is used to process conf file values that may contain runtime placeholders
+func replaceRuntimePlaceholdersInMap(values map[string]string, runtimeCtx *RuntimeContext) map[string]string {
+	if runtimeCtx == nil {
+		return values
+	}
+
+	placeholderRegex := regexp.MustCompile(`\{\{(\w+)\}\}`)
+	result := make(map[string]string)
+
+	for key, value := range values {
+		replaced := placeholderRegex.ReplaceAllStringFunc(value, func(match string) string {
+			placeholderName := strings.Trim(match, "{}")
+			switch placeholderName {
+			case "NAMESPACE":
+				return runtimeCtx.Namespace
+			case "INSTANCE_NAME":
+				return runtimeCtx.InstanceName
+			default:
+				return match
+			}
+		})
+		result[key] = replaced
+	}
+
+	return result
+}
+
+// replaceTemplatePlaceholders recursively replaces template placeholder values in the config structure
+// It looks for the placeholder string and replaces it with values from confValues
+// based on the field name (key in confValues)
+// This handles static template placeholders like 'https://your-oidc-issuer-url'
+func replaceTemplatePlaceholders(data interface{}, placeholder string, confValues map[string]string) {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for key, val := range v {
+			// Check if this is a string value that matches the placeholder
+			if strVal, ok := val.(string); ok && strVal == placeholder {
+				// Try to find replacement value by key name
+				if replacement, exists := confValues[key]; exists {
+					v[key] = replacement
+				}
+			} else {
+				// Recursively process nested structures
+				replaceTemplatePlaceholders(val, placeholder, confValues)
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			replaceTemplatePlaceholders(item, placeholder, confValues)
+		}
+	}
+}
+
+// ProcessTemplateFromPaths processes a template using scenario name and variant name
+// scenarioDir: directory containing the template and conf files (e.g., "scenarios/basic")
+// scenarioName: base name of the scenario (e.g., "rhtas-basic")
+// variantName: variant name (e.g., "default")
+// runtimeCtx: runtime context with standard placeholders (Namespace, InstanceName, etc.)
+// Returns the path to the generated YAML file
+func ProcessTemplateFromPaths(scenarioDir, scenarioName, variantName string, runtimeCtx *RuntimeContext) (string, error) {
+	templatePath := filepath.Join(scenarioDir, scenarioName+"-template.yaml")
+	confPath := filepath.Join(scenarioDir, scenarioName+"-"+variantName+".conf")
+	outputPath := filepath.Join(scenarioDir, scenarioName+"-"+variantName+".yaml")
+
+	if err := ProcessTemplate(templatePath, confPath, outputPath, runtimeCtx); err != nil {
+		return "", err
+	}
+
+	return outputPath, nil
 }

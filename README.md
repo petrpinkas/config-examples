@@ -49,6 +49,33 @@ go run github.com/onsi/ginkgo/v2/ginkgo -v
 ginkgo -v test/...
 ```
 
+### Dry Run Mode
+
+For faster feedback during development, you can run tests in "dry run" mode. This mode:
+- ✅ Processes templates and configs
+- ✅ Validates configuration structure
+- ✅ Verifies placeholder replacement
+- ❌ Skips Kubernetes client initialization
+- ❌ Skips namespace creation
+- ❌ Skips actual CR installation
+- ❌ Skips readiness verification
+
+Enable dry run mode:
+```bash
+DRY_RUN=true go test -v ./test/... --ginkgo.v
+```
+
+Or use `1` instead of `true`:
+```bash
+DRY_RUN=1 go test -v ./test/... --ginkgo.v
+```
+
+Dry run mode is useful for:
+- Testing template and config processing without OpenShift access
+- Fast validation of configuration changes
+- CI/CD pipelines that don't have cluster access
+- Local development and debugging
+
 ### Common Ginkgo Flags
 
 - `-v` or `--verbose`: Verbose output

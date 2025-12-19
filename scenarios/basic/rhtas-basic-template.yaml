@@ -4,11 +4,11 @@ metadata:
   annotations:
     rhtas.redhat.com/metrics: 'true'
   labels:
-    app.kubernetes.io/instance: securesign-sample
-    app.kubernetes.io/name: securesign-sample
+    app.kubernetes.io/instance: {{INSTANCE_NAME}}
+    app.kubernetes.io/name: {{INSTANCE_NAME}}
     app.kubernetes.io/part-of: trusted-artifact-signer
-  name: securesign-sample
-  namespace: openshift-operators
+  name: {{INSTANCE_NAME}}
+  namespace: {{NAMESPACE}}
 spec:
   ctlog:
     monitoring:
@@ -21,8 +21,8 @@ spec:
     config:
       OIDCIssuers:
         - ClientID: trusted-artifact-signer
-          Issuer: 'https://keycloak-keycloak-system.apps.rhtas-417-a.fuse.integration-qe.com/auth/realms/trusted-artifact-signer'
-          IssuerURL: 'https://keycloak-keycloak-system.apps.rhtas-417-a.fuse.integration-qe.com/auth/realms/trusted-artifact-signer'
+          Issuer: 'https://your-oidc-issuer-url'
+          IssuerURL: 'https://your-oidc-issuer-url'
           Type: email
     externalAccess:
       enabled: true
