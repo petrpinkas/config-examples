@@ -114,6 +114,27 @@ func (c *Config) GetAPIVersion() string {
 	return ""
 }
 
+// GetGroupVersionKind returns the GroupVersionKind from the config
+// Parses apiVersion (e.g., "rhtas.redhat.com/v1alpha1") and kind (e.g., "Securesign", "CTlog")
+func (c *Config) GetGroupVersionKind() (string, string, string) {
+	apiVersion := c.GetAPIVersion()
+	kind := c.GetKind()
+	
+	// Parse apiVersion: "group/version" or just "version"
+	var group, version string
+	if apiVersion != "" {
+		parts := strings.Split(apiVersion, "/")
+		if len(parts) == 2 {
+			group = parts[0]
+			version = parts[1]
+		} else {
+			version = parts[0]
+		}
+	}
+	
+	return group, version, kind
+}
+
 // GetName returns the name from metadata
 func (c *Config) GetName() string {
 	if metadata, ok := c.Data["metadata"].(map[string]interface{}); ok {

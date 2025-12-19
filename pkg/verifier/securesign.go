@@ -19,10 +19,10 @@ var (
 	}
 )
 
-// Get retrieves a Securesign CR instance
-func Get(ctx context.Context, cli client.Client, namespace, name string) *unstructured.Unstructured {
+// Get retrieves a resource instance by GroupVersionKind
+func Get(ctx context.Context, cli client.Client, namespace, name string, gvk schema.GroupVersionKind) *unstructured.Unstructured {
 	obj := &unstructured.Unstructured{}
-	obj.SetGroupVersionKind(securesignGVK)
+	obj.SetGroupVersionKind(gvk)
 
 	err := cli.Get(ctx, client.ObjectKey{
 		Namespace: namespace,
@@ -36,6 +36,11 @@ func Get(ctx context.Context, cli client.Client, namespace, name string) *unstru
 		return nil
 	}
 	return obj
+}
+
+// GetSecuresign retrieves a Securesign CR instance (backward compatibility)
+func GetSecuresign(ctx context.Context, cli client.Client, namespace, name string) *unstructured.Unstructured {
+	return Get(ctx, cli, namespace, name, securesignGVK)
 }
 
 // IsReady checks if the Securesign CR has Ready condition set to True
@@ -67,19 +72,24 @@ func IsReady(obj *unstructured.Unstructured) bool {
 	return false
 }
 
-// Verify waits for the Securesign CR to be ready
-func Verify(ctx context.Context, cli client.Client, namespace, name string) {
+// Verify waits for a resource to be ready
+func Verify(ctx context.Context, cli client.Client, namespace, name string, gvk schema.GroupVersionKind) {
 	Eventually(func(g Gomega) *unstructured.Unstructured {
-		obj := Get(ctx, cli, namespace, name)
+		obj := Get(ctx, cli, namespace, name, gvk)
 		g.Expect(obj).NotTo(BeNil())
 		return obj
 	}).WithContext(ctx).Should(Not(BeNil()))
 
 	Eventually(func(g Gomega) bool {
-		obj := Get(ctx, cli, namespace, name)
+		obj := Get(ctx, cli, namespace, name, gvk)
 		g.Expect(obj).NotTo(BeNil())
 		return IsReady(obj)
 	}).WithContext(ctx).Should(BeTrue())
+}
+
+// VerifySecuresign waits for the Securesign CR to be ready (backward compatibility)
+func VerifySecuresign(ctx context.Context, cli client.Client, namespace, name string) {
+	Verify(ctx, cli, namespace, name, securesignGVK)
 }
 
 // GetReadyCondition is a Gomega matcher helper
