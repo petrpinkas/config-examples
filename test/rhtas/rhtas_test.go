@@ -18,22 +18,25 @@ import (
 
 // Initialize tests for all discovered scenarios at package level
 // This creates parametrized tests where each scenario is a parameter
+// Supports multiple folder structures in scenarios/ (e.g., scenarios/rhtas/, scenarios/operator/, etc.)
 func init() {
 	scenariosDir := filepath.Join("..", "..", "scenarios")
-	scenarios, err := support.DiscoverScenarios(scenariosDir)
+	folderScenarios, err := support.DiscoverAllScenarios(scenariosDir)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to discover scenarios: %v", err))
 	}
-	if len(scenarios) == 0 {
+	if len(folderScenarios) == 0 {
 		panic("No scenarios found")
 	}
 
 	// Log found template files
-	support.LogFoundTemplates(scenariosDir, scenarios, "default")
+	support.LogFoundTemplates(folderScenarios, scenariosDir, "default")
 
 	// Create parametrized tests for each scenario
-	for _, scenarioName := range scenarios {
-		testScenario(scenarioName)
+	for folderName, scenarios := range folderScenarios {
+		for _, scenarioName := range scenarios {
+			testScenario(folderName, scenarioName)
+		}
 	}
 }
 
@@ -49,7 +52,9 @@ type scenarioTestContext struct {
 }
 
 // setupScenario performs all setup steps for a scenario
-func setupScenario(ctx SpecContext, scenarioName string) *scenarioTestContext {
+// folderName: Top-level folder name (e.g., "rhtas", "operator")
+// scenarioName: Scenario name within the folder (e.g., "basic", "simple")
+func setupScenario(ctx SpecContext, folderName, scenarioName string) *scenarioTestContext {
 	testCtx := &scenarioTestContext{
 		scenarioName: scenarioName,
 		dryRun:       support.IsDryRun(),
@@ -72,7 +77,7 @@ func setupScenario(ctx SpecContext, scenarioName string) *scenarioTestContext {
 	}
 
 	// Process template with conf file to generate the final YAML
-	scenariosDir := filepath.Join("..", "..", "scenarios")
+	scenariosDir := filepath.Join("..", "..", "scenarios", folderName)
 	var err error
 	testCtx.configPath, err = config.ProcessScenarioTemplate(
 		scenarioName,
@@ -118,13 +123,17 @@ func setupScenario(ctx SpecContext, scenarioName string) *scenarioTestContext {
 }
 
 // testScenario creates a test for a specific scenario using parametrized approach
-func testScenario(scenarioName string) {
-	yamlFileName := fmt.Sprintf("rhtas-%s-default-scenario.yaml", scenarioName)
-	Describe(fmt.Sprintf("Scenario %s", yamlFileName), Ordered, func() {
+// folderName: Top-level folder name (e.g., "rhtas", "ctlog")
+// scenarioName: Scenario name within the folder (e.g., "basic", "simple")
+func testScenario(folderName, scenarioName string) {
+	// Use folder name as prefix for YAML filename (e.g., "rhtas-basic", "ctlog-basic")
+	yamlFileName := fmt.Sprintf("%s-%s-default-scenario.yaml", folderName, scenarioName)
+	scenarioPath := fmt.Sprintf("%s/%s", folderName, yamlFileName)
+	Describe(fmt.Sprintf("Scenario %s", scenarioPath), Ordered, func() {
 		var testCtx *scenarioTestContext
 
 		BeforeAll(func(ctx SpecContext) {
-			testCtx = setupScenario(ctx, scenarioName)
+			testCtx = setupScenario(ctx, folderName, scenarioName)
 		})
 
 		Describe("Config Loading", func() {

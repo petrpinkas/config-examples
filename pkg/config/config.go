@@ -354,7 +354,10 @@ func ProcessTemplateFromPaths(scenarioDir, scenarioName, variantName string, run
 //   - error: Any error encountered during processing
 func ProcessScenarioTemplate(scenarioName, scenariosDir, namespace, instanceName, variantName string) (string, error) {
 	scenarioDir := filepath.Join(scenariosDir, scenarioName)
-	baseName := fmt.Sprintf("rhtas-%s", scenarioName)
+	// Extract folder name (prefix) from scenariosDir path
+	// e.g., "../../scenarios/rhtas" -> "rhtas", "../../scenarios/ctlog" -> "ctlog"
+	folderName := filepath.Base(scenariosDir)
+	baseName := fmt.Sprintf("%s-%s", folderName, scenarioName)
 
 	runtimeCtx := &RuntimeContext{
 		Namespace:    namespace,
