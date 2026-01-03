@@ -1,0 +1,29 @@
+kind: Trillian
+apiVersion: rhtas.redhat.com/v1alpha1
+metadata:
+  labels:
+    app.kubernetes.io/instance: {{INSTANCE_NAME}}
+    app.kubernetes.io/name: {{INSTANCE_NAME}}
+    app.kubernetes.io/part-of: trusted-artifact-signer
+  name: trillian-sample
+  namespace: {{NAMESPACE}}
+spec:
+  database:
+    create: true
+  server:
+    replicas: 1
+  signer:
+    replicas: 1
+---
+kind: Rekor
+apiVersion: rhtas.redhat.com/v1alpha1
+metadata:
+  labels:
+    app.kubernetes.io/instance: {{INSTANCE_NAME}}
+    app.kubernetes.io/name: {{INSTANCE_NAME}}
+    app.kubernetes.io/part-of: trusted-artifact-signer
+  name: rekor-sample
+  namespace: {{NAMESPACE}}
+spec:
+  externalAccess:
+    enabled: true

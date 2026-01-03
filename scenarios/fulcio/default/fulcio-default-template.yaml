@@ -1,0 +1,22 @@
+kind: Fulcio
+apiVersion: rhtas.redhat.com/v1alpha1
+metadata:
+  labels:
+    app.kubernetes.io/instance: {{INSTANCE_NAME}}
+    app.kubernetes.io/name: {{INSTANCE_NAME}}
+    app.kubernetes.io/part-of: trusted-artifact-signer
+  name: fulcio-sample
+  namespace: {{NAMESPACE}}
+spec:
+  certificate:
+    commonName: fulcio.hostname
+    organizationEmail: jdoe@redhat.com
+    organizationName: Red Hat
+  config:
+    OIDCIssuers:
+      - ClientID: trusted-artifact-signer
+        Issuer: 'https://your-oidc-issuer-url'
+        IssuerURL: 'https://your-oidc-issuer-url'
+        Type: email
+  externalAccess:
+    enabled: true
