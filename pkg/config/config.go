@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -234,22 +235,36 @@ func ProcessTemplate(templatePath, confPath, outputPath string, runtimeCtx *Runt
 	templateDataStr := string(templateData)
 	templateDataStr = replaceRuntimePlaceholdersInString(templateDataStr, runtimeCtx)
 
-	// Parse template as YAML to work with structured data
-	var templateConfig map[string]interface{}
-	if err := yaml.Unmarshal([]byte(templateDataStr), &templateConfig); err != nil {
-		return fmt.Errorf("failed to parse template YAML: %w", err)
+	// Split by YAML document separator (---) to handle multi-document YAML files
+	documents := splitYAMLDocuments(templateDataStr)
+	var processedDocs [][]byte
+
+	for i, docStr := range documents {
+		if strings.TrimSpace(docStr) == "" {
+			continue // Skip empty documents
+		}
+
+		// Parse each document as YAML to work with structured data
+		var templateConfig map[string]interface{}
+		if err := yaml.Unmarshal([]byte(docStr), &templateConfig); err != nil {
+			return fmt.Errorf("failed to parse template YAML document %d: %w", i+1, err)
+		}
+
+		// Second pass: Replace template placeholders (like 'https://your-oidc-issuer-url')
+		// The placeholder in YAML is 'https://your-oidc-issuer-url' but after unmarshaling it becomes https://your-oidc-issuer-url
+		placeholder := "https://your-oidc-issuer-url"
+		replaceTemplatePlaceholders(templateConfig, placeholder, confValues)
+
+		// Convert back to YAML
+		docYAML, err := yaml.Marshal(templateConfig)
+		if err != nil {
+			return fmt.Errorf("failed to marshal processed YAML document %d: %w", i+1, err)
+		}
+		processedDocs = append(processedDocs, docYAML)
 	}
 
-	// Second pass: Replace template placeholders (like 'https://your-oidc-issuer-url')
-	// The placeholder in YAML is 'https://your-oidc-issuer-url' but after unmarshaling it becomes https://your-oidc-issuer-url
-	placeholder := "https://your-oidc-issuer-url"
-	replaceTemplatePlaceholders(templateConfig, placeholder, confValues)
-
-	// Convert back to YAML
-	outputData, err := yaml.Marshal(templateConfig)
-	if err != nil {
-		return fmt.Errorf("failed to marshal processed YAML: %w", err)
-	}
+	// Join all documents with --- separator
+	outputData := bytes.Join(processedDocs, []byte("---\n"))
 
 	// Write output file
 	if err := os.WriteFile(outputPath, outputData, 0644); err != nil {
@@ -257,6 +272,49 @@ func ProcessTemplate(templatePath, confPath, outputPath string, runtimeCtx *Runt
 	}
 
 	return nil
+}
+
+// splitYAMLDocuments splits a multi-document YAML string into individual documents
+// Documents are separated by "---" on a line by itself (optionally with leading/trailing whitespace)
+func splitYAMLDocuments(content string) []string {
+	// Split by "---" separator
+	// We need to handle cases where --- appears at the start, middle, or end
+	lines := strings.Split(content, "\n")
+	var documents []string
+	var currentDoc []string
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Check if this line is a document separator (--- on its own line)
+		if trimmed == "---" {
+			// Save current document if it has content
+			if len(currentDoc) > 0 {
+				docStr := strings.Join(currentDoc, "\n")
+				if strings.TrimSpace(docStr) != "" {
+					documents = append(documents, docStr)
+				}
+				currentDoc = []string{}
+			}
+			// Skip the separator line itself
+			continue
+		}
+		currentDoc = append(currentDoc, line)
+		
+		// If this is the last line, save the current document
+		if i == len(lines)-1 && len(currentDoc) > 0 {
+			docStr := strings.Join(currentDoc, "\n")
+			if strings.TrimSpace(docStr) != "" {
+				documents = append(documents, docStr)
+			}
+		}
+	}
+
+	// If no separators found, return the whole content as a single document
+	if len(documents) == 0 {
+		return []string{content}
+	}
+
+	return documents
 }
 
 // replaceRuntimePlaceholdersInString replaces {{PLACEHOLDER}} patterns in a raw string

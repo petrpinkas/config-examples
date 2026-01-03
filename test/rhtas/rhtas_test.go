@@ -112,7 +112,8 @@ func setupScenario(ctx SpecContext, folderName, scenarioName, variantName string
 		fmt.Printf("Installing %s: %s in namespace: %s\n", testCtx.resourceKind, testCtx.securesignName, testCtx.namespace.Name)
 
 		// Install the configuration (works generically for any Kubernetes resource)
-		err = installer.InstallConfig(ctx, testCtx.k8sClient, testCtx.securesignConfig)
+		// Pass the file path to preserve multi-document YAML structure
+		err = installer.InstallConfig(ctx, testCtx.k8sClient, testCtx.securesignConfig, testCtx.configPath)
 		Expect(err).NotTo(HaveOccurred())
 		fmt.Printf("%s CR created, waiting for installation...\n", testCtx.resourceKind)
 
